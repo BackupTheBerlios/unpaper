@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-unpaper 1.0 - written by Jens Gulden 2005                                   */
+unpaper 1.0.1 - written by Jens Gulden 2005                                   */
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
@@ -27,15 +27,16 @@ const char* README =
 "and tiff2pdf.";
 
 const char* COMPILE = 
-"gcc -D TIMESTAMP=\"<yyyy-MM-dd HH:mm:ss>\" -lm -O3 -funroll-all-loops -o unpaper unpaper.c";
+"gcc -D TIMESTAMP=\"<yyyy-MM-dd HH:mm:ss>\" -lm -O3 -funroll-all-loops -o unpaper unpaper.c\n";
 /* ------------------------------------------------------------------------ */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <time.h>
  
-const char* VERSION = "1.0";
+const char* VERSION = "1.0.1";
 
 #ifdef TIMESTAMP
 const char* BUILD = TIMESTAMP;
@@ -138,7 +139,7 @@ const char* OPTIONS =
 "-ls --blurfilter-size                Size of blurfilter area to search for\n"
 "      <size>|<h-size>,<v-size>       'lonely' clusters of pixels.\n"
 "                                     (default: 100,100)\n"
-"-lt --blurfilter-step                Size of 'blurring' steps in each\n"
+"-lp --blurfilter-step                Size of 'blurring' steps in each\n"
 "      <step>|<h-step>,<v-step>       direction. (default: 50,50)\n"
 "-li --blurfilter-intensity <ratio>   Relative intensity with which to delete\n"
 "                                     tiny clusters of pixels. Any blurred area\n"
@@ -286,6 +287,8 @@ const char* OPTIONS =
 "--no-border-scan                     Disables automatic border-scanning at the\n"
 "  <sheet>{,<sheet>[-<sheet>]}        edges of the sheet after most other\n"
 "                                     processing has been done.\n"
+"--no-border-center                   Disables automatic centering of the area\n"
+"  <sheet>{,<sheet>[-<sheet>]}        detected by border-scan.\n"
 "-n --no-processing                   Do not perform any processing on a sheet\n"
 "     <sheet>{,<sheet>[-<sheet>]}     except pre/post rotating and mirroring,\n"
 "                                     and file-type conversions on saving.\n"
@@ -326,14 +329,12 @@ const char* HELP =
 
 /* --- constants ---------------------------------------------------------- */
               
-const MAX_POINTS = 100;
-const MAX_MASKS = 100;
-const MAX_ROTATION_SCAN_SIZE = 10000; // maximum pixel count of virtual line to detect rotation with
-const MAX_MULTI_INDEX = 10000; // maximum pixel count of virtual line to detect rotation with
-const WHITE = 255;
-const GRAY = 128;
-const BLACK = 0;
-
+#define MAX_MULTI_INDEX 10000 // maximum pixel count of virtual line to detect rotation with
+#define MAX_ROTATION_SCAN_SIZE 10000 // maximum pixel count of virtual line to detect rotation with
+#define MAX_MASKS 100
+#define MAX_POINTS 100
+#define WHITE 255
+#define BLACK 0
 
 
 /* --- typedefs ----------------------------------------------------------- */
@@ -633,7 +634,7 @@ void printMultiIndex(int multiIndex[MAX_MULTI_INDEX], int multiIndexCount) {
 BOOLEAN setPixel(int pixel, int x, int y, unsigned char* buffer, int w, int h, int type) {
     unsigned char* p;
     if (x<0||x>=w||y<0||y>=h) {
-        //nop
+        return FALSE; //nop
     } else {
         p = &buffer[y*w+x];
         if (*p != (unsigned char)pixel) {
@@ -1017,7 +1018,7 @@ BOOLEAN loadImage(char* filename, unsigned char** buffer, int* width, int* heigh
     inputSizeFile = fileSize - ftell(f);
     inputSize = bytesPerLine * (*height);
 
-    *buffer = (char*)malloc(inputSize);
+    *buffer = (unsigned char*)malloc(inputSize);
     read = fread(*buffer, 1, inputSize, f);
     if (read != inputSize) {
         printf("*** error: Only %i out of %i could be read.\n", read, inputSize);
@@ -1025,7 +1026,7 @@ BOOLEAN loadImage(char* filename, unsigned char** buffer, int* width, int* heigh
     }
     
     if (*type==PBM) { // internally convert to pgm
-        buffer2 = (char*)malloc((*width) * (*height));
+        buffer2 = (unsigned char*)malloc((*width) * (*height));
         lineOffsetInput = 0;
         lineOffsetOutput = 0;
         for (y = 0; y < (*height); y++) {
@@ -1090,7 +1091,7 @@ BOOLEAN saveImage(char* filename, unsigned char* buffer, int width, int height, 
         blackThresholdAbs = WHITE * (1.0 - blackThreshold);
         bytesPerLine = (width + 7) >> 3; // / 8;
         outputSize = bytesPerLine * height;
-        buffer2 = (char*)malloc(outputSize);
+        buffer2 = (unsigned char*)malloc(outputSize);
         for (i = 0; i < outputSize; i++) {
             buffer2[i] = 0; // clear each bit (edge-bits on the right may stay unused and should be blank)
         }
@@ -1166,9 +1167,9 @@ void saveDebug(char* filename, unsigned char* buffer, int width, int height) {
  * Returns the maximum peak value that occurs when shifting a rotated virtual line above the image,
  * starting from one edge of an area and moving towards the middle point of the area.
  * The peak value is calulated by the absolute difference in the average blackness of pixels that occurs between two single shifting steps.
- * @param m Steigungsfaktor of the virtually shifted (m=tan(angle)). Mind that this is negative for negative radians.
+ * @param m ascending slope of the virtually shifted (m=tan(angle)). Mind that this is negative for negative radians.
  */
-int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, float deskewScanThreshold, int shiftX, int shiftY, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
+int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, int shiftX, int shiftY, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
     int width;
     int height;
     int mid;
@@ -1196,7 +1197,6 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
         
     width = right-left+1;
     height = bottom-top+1;    
-    outerOffset = (int)(abs(m) * half);
     maxBlacknessAbs = (int) 255 * deskewScanSize * deskewScanDepth;
     
     if (shiftY==0) { // horizontal detection
@@ -1208,6 +1208,7 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
 
         maxDepth = width/2;
         half = deskewScanSize/2;
+        outerOffset = (int)(abs(m) * half);
         mid = height/2;
         sideOffset = shiftX > 0 ? left-outerOffset : right+outerOffset;
         X = sideOffset + half * m;
@@ -1222,6 +1223,7 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
         limit(&deskewScanSize, width);
         maxDepth = height/2;
         half = deskewScanSize/2;
+        outerOffset = (int)(abs(m) * half);
         mid = width/2;
         sideOffset = shiftY > 0 ? top-outerOffset : bottom+outerOffset;
         X = left + mid - half;
@@ -1244,7 +1246,7 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
     diff = 0;
     maxDiff = 0;
     accumulatedBlackness = 0;
-    for (depth = 0; (accumulatedBlackness < maxBlacknessAbs) && (depth < maxDepth) ; depth++) { // && !(diff < maxDiff*deskewScanThreshold)
+    for (depth = 0; (accumulatedBlackness < maxBlacknessAbs) && (depth < maxDepth) ; depth++) {
         // calculate blackness of virtual line
         blackness = 0;
         for (lineStep = 0; lineStep < deskewScanSize; lineStep++) {
@@ -1277,7 +1279,7 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
  * Which of the four edges to take depends on whether shiftX or shiftY is non-zero,
  * and what sign this shifting value has.
  */
-double detectEdgeRotation(float deskewScanRange, float deskewScanStep, int deskewScanSize, float deskewScanDepth, float deskewScanThreshold, int shiftX, int shiftY, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
+double detectEdgeRotation(float deskewScanRange, float deskewScanStep, int deskewScanSize, float deskewScanDepth, int shiftX, int shiftY, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
     // either shiftX or shiftY is 0, the other value is -i|+i
     // depending on shiftX/shiftY the start edge for shifting is determined
     double rangeRad;
@@ -1295,7 +1297,7 @@ double detectEdgeRotation(float deskewScanRange, float deskewScanStep, int deske
     // iteratively increase test angle,  alterating between +/- sign while increasing absolute value
     for (rotation = 0.0; rotation <= rangeRad; rotation = (rotation>=0.0) ? -(rotation + stepRad) : -rotation ) {    
         m = tan(rotation);
-        peak = detectEdgeRotationPeak(m, deskewScanSize, deskewScanDepth, deskewScanThreshold, shiftX, shiftY, left, top, right, bottom, buf, w, h, type);
+        peak = detectEdgeRotationPeak(m, deskewScanSize, deskewScanDepth, shiftX, shiftY, left, top, right, bottom, buf, w, h, type);
         if (peak > maxPeak) {
             detectedRotation = rotation;
             maxPeak = peak;
@@ -1310,7 +1312,7 @@ double detectEdgeRotation(float deskewScanRange, float deskewScanStep, int deske
  * Angles between -deskewScanRange and +deskewScanRange are scanned, at either the
  * horizontal or vertical edges of the area specified by left, top, right, bottom.
  */
-double detectRotation(int deskewScanDirections, int deskewScanRange, float deskewScanStep, int deskewScanSize, float deskewScanDepth, float deskewScanThreshold, float deskewScanDeviation, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
+double detectRotation(int deskewScanDirections, int deskewScanRange, float deskewScanStep, int deskewScanSize, float deskewScanDepth, float deskewScanDeviation, int left, int top, int right, int bottom, unsigned char* buf, int w, int h, int type) {
     double rotation[4];
     int count;
     double total;
@@ -1321,13 +1323,13 @@ double detectRotation(int deskewScanDirections, int deskewScanRange, float deske
     count = 0;
     if ((deskewScanDirections & 1<<HORIZONTAL) != 0) {
         // left
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanThreshold, 1, 0, left, top, right, bottom, buf, w, h, type);
+        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 1, 0, left, top, right, bottom, buf, w, h, type);
         if (verbose >= VERBOSE_DEBUG) {
             printf("detected rotation left: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
         // right
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanThreshold, -1, 0, left, top, right, bottom, buf, w, h, type);
+        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, -1, 0, left, top, right, bottom, buf, w, h, type);
         if (verbose >= VERBOSE_DEBUG) {
             printf("detected rotation right: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
@@ -1335,13 +1337,13 @@ double detectRotation(int deskewScanDirections, int deskewScanRange, float deske
     }
     if ((deskewScanDirections & 1<<VERTICAL) != 0) {
         // top
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanThreshold, 0, 1, left, top, right, bottom, buf, w, h, type);
+        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, 1, left, top, right, bottom, buf, w, h, type);
         if (verbose >= VERBOSE_DEBUG) {
             printf("detected rotation top: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
         // bottom
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanThreshold, 0, -1, left, top, right, bottom, buf, w, h, type);
+        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, -1, left, top, right, bottom, buf, w, h, type);
         if (verbose >= VERBOSE_DEBUG) {
             printf("detected rotation bottom: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
@@ -1392,7 +1394,6 @@ void rotate(double radians, unsigned char* buf, unsigned char* target, int w, in
     int pixel;
     double sin;
     double cos;
-    int i;
     
     sincos(radians, &sin, &cos);
     midX = w/2;
@@ -1431,7 +1432,7 @@ void rotate(double radians, unsigned char* buf, unsigned char* target, int w, in
  * qpixelBuf must have been allocated before with 4-times amount of memory as
  * buf.
  */
-void convertToQpixels(char* buf, int w, int h, int type, unsigned char* qpixelBuf) {
+void convertToQPixels(unsigned char* buf, int w, int h, int type, unsigned char* qpixelBuf) {
     int x;
     int y;
     int xx;
@@ -1465,7 +1466,7 @@ void convertToQpixels(char* buf, int w, int h, int type, unsigned char* qpixelBu
  * buf must have been allocated before with 1/4-times amount of memory as
  * qpixelBuf.
  */
-void convertFromQpixels(char* qpixelBuf, unsigned char* buf, int w, int h, int type) {  //, int qpixelDepth) {
+void convertFromQPixels(unsigned char* qpixelBuf, unsigned char* buf, int w, int h, int type) {  //, int qpixelDepth) {
     int x;
     int y;
     int xx;
@@ -1652,9 +1653,6 @@ int detectMasks(int mask[MAX_MASKS][EDGES_COUNT], BOOLEAN maskValid[MAX_MASKS], 
 void applyMasks(int mask[MAX_MASKS][EDGES_COUNT], int maskCount, int maskColor, unsigned char* buf, int w, int h, int type) {
     int x;
     int y;
-    int pixel;
-    int total;
-    int count;
     int i;
     int left, top, right, bottom;
     BOOLEAN m;
@@ -1694,7 +1692,6 @@ void applyWipes(int area[MAX_MASKS][EDGES_COUNT], int areaCount, int wipeColor, 
     int y;
     int i;
     int count;
-    int pixel;
 
     for (i = 0; i < areaCount; i++) {
         count = 0;
@@ -1788,7 +1785,7 @@ void flipRotate(int direction, unsigned char** buf, int* width, int* height, int
  * @param stepY is 0 if stepX!=0
  * @see blackfilter()
  */
-void blackfilterScan(int stepX, int stepY, int size, int depth, int step, float threshold, int intensity, float blackThreshold, unsigned char* buf, int w, int h, int type) {
+void blackfilterScan(int stepX, int stepY, int size, int depth, float threshold, int intensity, float blackThreshold, unsigned char* buf, int w, int h, int type) {
     int left;
     int top;
     int right;
@@ -1870,10 +1867,10 @@ void blackfilterScan(int stepX, int stepY, int size, int depth, int step, float 
  */
 void blackfilter(int blackfilterScanDirections, int blackfilterScanSize[DIRECTIONS_COUNT], int blackfilterScanDepth[DIRECTIONS_COUNT], int blackfilterScanStep[DIRECTIONS_COUNT], float blackfilterScanThreshold, int blackfilterIntensity, float blackThreshold, unsigned char* buf, int w, int h, int type) {
     if ((blackfilterScanDirections & 1<<HORIZONTAL) != 0) { // left-to-right scan
-        blackfilterScan(blackfilterScanStep[HORIZONTAL], 0, blackfilterScanSize[HORIZONTAL], blackfilterScanDepth[HORIZONTAL], blackfilterScanStep[HORIZONTAL], blackfilterScanThreshold, blackfilterIntensity, blackThreshold, buf, w, h, type);
+        blackfilterScan(blackfilterScanStep[HORIZONTAL], 0, blackfilterScanSize[HORIZONTAL], blackfilterScanDepth[HORIZONTAL], blackfilterScanThreshold, blackfilterIntensity, blackThreshold, buf, w, h, type);
     }
     if ((blackfilterScanDirections & 1<<VERTICAL) != 0) { // top-to-bottom scan
-        blackfilterScan(0, blackfilterScanStep[VERTICAL], blackfilterScanSize[VERTICAL], blackfilterScanDepth[VERTICAL], blackfilterScanStep[VERTICAL], blackfilterScanThreshold, blackfilterIntensity, blackThreshold, buf, w, h, type);
+        blackfilterScan(0, blackfilterScanStep[VERTICAL], blackfilterScanSize[VERTICAL], blackfilterScanDepth[VERTICAL], blackfilterScanThreshold, blackfilterIntensity, blackThreshold, buf, w, h, type);
     }
 }
 
@@ -2041,11 +2038,6 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
     int height;
     int targetX;
     int targetY;
-    int shiftX;
-    int shiftY;
-    int x;
-    int y;
-    int pixel;
     unsigned char* b;
     
     width = right - left + 1;
@@ -2249,7 +2241,6 @@ int main(int argc, char* argv[])
     float deskewScanDepth;
     float deskewScanRange;
     float deskewScanStep;
-    float deskewScanThreshold;
     float deskewScanDeviation;
     int borderScanDirections;
     int borderScanSize[DIRECTIONS_COUNT];
@@ -2299,15 +2290,11 @@ int main(int argc, char* argv[])
     int right;
     int bottom;
     int i;
-    int j;
     char* inputFilename; 
     char* outputFilename; 
     char inputFilenameResolved[255];
     char outputFilenameResolved[255];
     int autoborder[EDGES_COUNT];
-    int fileSize;
-    int inputSize;
-    int inputSizeFile;
     unsigned char* buffer; // binary image data
     unsigned char* originalBuffer; // binary image data
     unsigned char* qpixelBuffer; // binary image data
@@ -2322,7 +2309,6 @@ int main(int argc, char* argv[])
     int rSize;
     unsigned char *r; // binary image data
     unsigned char *rSource; // binary image data
-    int borderMask[EDGES_COUNT];
     int outputType;
     BOOLEAN success;
     int nr;
@@ -2390,7 +2376,6 @@ int main(int argc, char* argv[])
         deskewScanDepth = 0.666666;
         deskewScanRange = 2.0;
         deskewScanStep = 0.1;
-        deskewScanThreshold = 0.1; // (unused)
         deskewScanDeviation = 1.0;
         borderScanDirections = (1<<VERTICAL);
         borderScanSize[HORIZONTAL] = borderScanSize[VERTICAL] = 5;
@@ -2785,10 +2770,6 @@ int main(int argc, char* argv[])
             } else if (strcmp(argv[i], "-dp")==0 || strcmp(argv[i], "--deskew-scan-step")==0) {
                 sscanf(argv[++i],"%f", &deskewScanStep);
 
-            // --deskew-scan-threshold  -dt
-            } else if (strcmp(argv[i], "-dt")==0 || strcmp(argv[i], "--deskew-scan-threshold")==0) {
-                sscanf(argv[++i],"%f", &deskewScanThreshold);
-
             // --deskew-scan-deviation  -dv
             } else if (strcmp(argv[i], "-dv")==0 || strcmp(argv[i], "--deskew-scan-deviation")==0) {
                 sscanf(argv[++i],"%f", &deskewScanDeviation);
@@ -3158,7 +3139,6 @@ int main(int argc, char* argv[])
                             printf("deskew-scan-depth: %f\n", deskewScanDepth);
                             printf("deskew-scan-range: %f\n", deskewScanRange);
                             printf("deskew-scan-step: %f\n", deskewScanStep);
-                            //printf("deskew-scan-threshold: %f\n", deskewScanThreshold);
                             printf("deskew-scan-deviation: %f\n", deskewScanDeviation);
                             if (qpixels==FALSE) {
                                 printf("qpixel-coding DISABLED.\n");
@@ -3334,8 +3314,8 @@ int main(int argc, char* argv[])
                             if (verbose>=VERBOSE_NORMAL) {
                                 printf("converting to qpixels.\n");
                             }
-                            qpixelBuffer = (char*)malloc(width*2 * height*2);
-                            convertToQpixels(buffer, width, height, inputType, qpixelBuffer);
+                            qpixelBuffer = (unsigned char*)malloc(width*2 * height*2);
+                            convertToQPixels(buffer, width, height, inputType, qpixelBuffer);
                             buffer = qpixelBuffer;
                             q = 2; // qpixel-factor for coordinates in both directions
                         } else {
@@ -3347,7 +3327,7 @@ int main(int argc, char* argv[])
                             maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, originalBuffer, width, height, inputType);
                         } else {
                             if (verbose >= VERBOSE_NORMAL) {
-                                printf("(mask-scan before deskewing disabled)\n", nr);
+                                printf("(mask-scan before deskewing disabled)\n");
                             }
                         }
 
@@ -3358,7 +3338,7 @@ int main(int argc, char* argv[])
 
                                 // for rotation detection, original buffer is used (not qpixels)
                                 saveDebug("./_before-deskew-detect.pgm", originalBuffer, width, height);
-                                rotation = - detectRotation(deskewScanDirections, deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanThreshold, deskewScanDeviation, mask[i][LEFT], mask[i][TOP], mask[i][RIGHT], mask[i][BOTTOM], originalBuffer, width, height, inputType);
+                                rotation = - detectRotation(deskewScanDirections, deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanDeviation, mask[i][LEFT], mask[i][TOP], mask[i][RIGHT], mask[i][BOTTOM], originalBuffer, width, height, inputType);
                                 saveDebug("./_after-deskew-detect.pgm", originalBuffer, width, height);
 
                                 if (rotation != 0.0) {
@@ -3369,8 +3349,8 @@ int main(int argc, char* argv[])
                                     rHeight = (mask[i][BOTTOM]-mask[i][TOP])*q;
                                     rSize = rWidth * rHeight;
 
-                                    rSource = (char*)malloc(rSize);
-                                    r = (char*)malloc(rSize);
+                                    rSource = (unsigned char*)malloc(rSize);
+                                    r = (unsigned char*)malloc(rSize);
 
                                     // copy area to rotate into rSource
                                     copyBuffer(mask[i][LEFT]*q, mask[i][TOP]*q, rWidth, rHeight, buffer, width*q, height*q, inputType,
@@ -3398,7 +3378,7 @@ int main(int argc, char* argv[])
                             if (verbose>=VERBOSE_NORMAL) {
                                 printf("converting back from qpixels.\n");
                             }
-                            convertFromQpixels(qpixelBuffer, originalBuffer, width, height, inputType); //, qpixelDepth);
+                            convertFromQPixels(qpixelBuffer, originalBuffer, width, height, inputType); //, qpixelDepth);
                             free(qpixelBuffer);
                             buffer = originalBuffer;
                         }
@@ -3416,7 +3396,7 @@ int main(int argc, char* argv[])
                             maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, buffer, width, height, inputType);
                         } else {
                             if (verbose >= VERBOSE_NORMAL) {
-                                printf("(mask-scan before centering disabled)\n", nr);
+                                printf("(mask-scan before centering disabled)\n");
                             }
                         }
 

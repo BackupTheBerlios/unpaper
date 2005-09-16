@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
 unpaper - written by Jens Gulden 2005                                       */
 
-const char* VERSION = "1.1";
+const char* VERSION = "1.1.1";
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
@@ -875,6 +875,7 @@ void parseSize(char* s, int i[2], int dpi, int* exitCode) {
     strcpy(pattern[1], "%f");
 
     // look for possible measurement
+    factor[0] = factor[1] = -1.0;
     for (j = 0; j < MEASUREMENTS_COUNT; j++) {
         for (k = 0; k < 2; k++) {
             if ( strstr(str[k], MEASUREMENTS[j][0]) != NULL ) {
@@ -4047,7 +4048,7 @@ int main(int argc, char* argv[])
             }
             
             if (exitCode != 0) {
-                printf("Use --help for options.\n");
+                printf("Try 'unpaper --help' for options.\n");
                 return exitCode;
             }
             i++;

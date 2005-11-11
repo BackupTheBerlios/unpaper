@@ -166,7 +166,7 @@ const char* OPTIONS =
 
 "-bn --blackfilter-scan-direction     Directions in which to search for solidly\n"
 "     [v[ertical]][,][h[orizontal]]   black areas. Either 'v' (for vertical\n"
-"                                     mirroring), 'h' (for horizontal mirroring)\n"
+"                                     scanning), 'h' (for horizontal scanning)\n"
 "                                     of 'v,h' (for both) can be specified.\n"
 "                                     (default: 'v,h')\n\n"
 
@@ -2484,13 +2484,13 @@ BOOLEAN detectMask(int startX, int startY, int maskScanDirections, int maskScanS
     width = *right - *left;
     height = *bottom - *top;
     success = TRUE;
-    if (width < maskScanMinimum[WIDTH] || width > maskScanMaximum[WIDTH]) {
+    if ( ((maskScanMinimum[WIDTH] != -1) && (width < maskScanMinimum[WIDTH])) || ((maskScanMaximum[WIDTH] != -1) && (width > maskScanMaximum[WIDTH])) ) {
         width = maskScanMaximum[WIDTH] / 2;
         *left = startX - width;
         *right = startX + width;
         success = FALSE;;
     }
-    if (height < maskScanMinimum[HEIGHT] || height > maskScanMaximum[HEIGHT]) {
+    if ( ((maskScanMinimum[HEIGHT] != -1) && (height < maskScanMinimum[HEIGHT])) || ((maskScanMaximum[HEIGHT] != -1) && (height > maskScanMaximum[HEIGHT])) ) {
         height = maskScanMaximum[HEIGHT] / 2;
         *top = startY - height;
         *bottom = startY + height;
@@ -3522,9 +3522,9 @@ int main(int argc, char* argv[])
                     layout = LAYOUT_DOUBLE;
                 } else if (strcmp(argv[i], "double-rotated")==0) {
                     layout = LAYOUT_DOUBLE;
-                    // assume pages are rotated right-above-left on the sheet, so pre-rotate
-                    preRotate = 90; // default as set by layout-template here, may again be overwritten by specific option
-                    postRotate = -90;
+                    // assume two pages are placed left-above-right on the sheet, so pre-rotate
+                    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
+                    postRotate = 90;
                 } else {
                     printf("*** error: Unknown layout mode '%s'.", argv[i]);
                     exitCode = 1;
@@ -4201,6 +4201,18 @@ int main(int argc, char* argv[])
                                 printf("*** error: Cannot load image %s.\n", inputFilenamesResolved[j]);
                                 exitCode = 2;
                             } else {
+                                // pre-rotate
+                                if (preRotate != 0) {
+                                    if (verbose>=VERBOSE_NORMAL) {
+                                        printf("pre-rotating %i degrees.\n", preRotate);
+                                    }
+                                    if (preRotate == 90) {
+                                        flipRotate(1, &page);
+                                    } else if (preRotate == -90) {
+                                        flipRotate(-1, &page);
+                                    }
+                                }
+
                                 // if sheet-size is not known yet (and not forced by --sheet-size), set now based on size of (first) input image
                                 if ( w == -1 ) {
                                     if ( sheetSize[WIDTH] != -1 ) {
@@ -4214,18 +4226,6 @@ int main(int argc, char* argv[])
                                         h = sheetSize[HEIGHT];
                                     } else {
                                         h = page.height;
-                                    }
-                                }
-                        
-                                // pre-rotate
-                                if (preRotate != 0) {
-                                    if (verbose>=VERBOSE_NORMAL) {
-                                        printf("pre-rotating %i degrees.\n", preRotate);
-                                    }
-                                    if (preRotate == 90) {
-                                        flipRotate(1, &page);
-                                    } else if (preRotate == -90) {
-                                        flipRotate(-1, &page);
                                     }
                                 }
                             }
@@ -4622,35 +4622,55 @@ int main(int argc, char* argv[])
                     
                     
                     // handle sheet layout
+                    
+                    // LAYOUT_SINGLE
                     if (layout == LAYOUT_SINGLE) {
                         // set middle of sheet as single starting point for mask detection
-                        point[pointCount][X] = sheet.width / 2;
-                        point[pointCount][Y] = sheet.height / 2;
-                        pointCount++;
-                        maskScanMaximum[WIDTH] = sheet.width;
-                        maskScanMaximum[HEIGHT] = sheet.height;
+                        if (pointCount == 0) { // no manual settings, use auto-values
+                            point[pointCount][X] = sheet.width / 2;
+                            point[pointCount][Y] = sheet.height / 2;
+                            pointCount++;
+                        }
+                        if (maskScanMaximum[WIDTH] == -1) {
+                            maskScanMaximum[WIDTH] = sheet.width;
+                        }
+                        if (maskScanMaximum[HEIGHT] == -1) {
+                            maskScanMaximum[HEIGHT] = sheet.height;
+                        }
                         // avoid inner half of the sheet to be blackfilter-detectable
-                        blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 4;
-                        blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
-                        blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 2 + sheet.width / 4;
-                        blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
-                        blackfilterExcludeCount++;
+                        if (blackfilterExcludeCount == 0) { // no manual settings, use auto-values
+                            blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 4;
+                            blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
+                            blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 2 + sheet.width / 4;
+                            blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
+                            blackfilterExcludeCount++;
+                        }
                         // set single outside border to start scanning for final border-scan
-                        outsideBorderscanMaskCount = 1;
-                        outsideBorderscanMask[0][LEFT] = 0;
-                        outsideBorderscanMask[0][RIGHT] = sheet.width - 1;
-                        outsideBorderscanMask[0][TOP] = 0;
-                        outsideBorderscanMask[0][BOTTOM] = sheet.height - 1;
+                        if (outsideBorderscanMaskCount == 0) { // no manual settings, use auto-values
+                            outsideBorderscanMaskCount = 1;
+                            outsideBorderscanMask[0][LEFT] = 0;
+                            outsideBorderscanMask[0][RIGHT] = sheet.width - 1;
+                            outsideBorderscanMask[0][TOP] = 0;
+                            outsideBorderscanMask[0][BOTTOM] = sheet.height - 1;
+                        }
+                        
+                    // LAYOUT_DOUBLE
                     } else if (layout == LAYOUT_DOUBLE) {
                         // set two middle of left/right side of sheet as starting points for mask detection
-                        point[pointCount][X] = sheet.width / 4;
-                        point[pointCount][Y] = sheet.height / 2;
-                        pointCount++;
-                        point[pointCount][X] = sheet.width - sheet.width / 4;
-                        point[pointCount][Y] = sheet.height / 2;
-                        pointCount++;
-                        maskScanMaximum[WIDTH] = sheet.width / 2;
-                        maskScanMaximum[HEIGHT] = sheet.height;
+                        if (pointCount == 0) { // no manual settings, use auto-values
+                            point[pointCount][X] = sheet.width / 4;
+                            point[pointCount][Y] = sheet.height / 2;
+                            pointCount++;
+                            point[pointCount][X] = sheet.width - sheet.width / 4;
+                            point[pointCount][Y] = sheet.height / 2;
+                            pointCount++;
+                        }
+                        if (maskScanMaximum[WIDTH] == -1) {
+                            maskScanMaximum[WIDTH] = sheet.width / 2;
+                        }
+                        if (maskScanMaximum[HEIGHT] == -1) {
+                            maskScanMaximum[HEIGHT] = sheet.height;
+                        }
                         if (middleWipe[0] > 0 || middleWipe[1] > 0) { // left, right
                             wipe[wipeCount][LEFT] = sheet.width / 2 - middleWipe[0];
                             wipe[wipeCount][TOP] = 0;
@@ -4659,26 +4679,30 @@ int main(int argc, char* argv[])
                             wipeCount++;
                         }
                         // avoid inner half of each page to be blackfilter-detectable
-                        blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 8;
-                        blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
-                        blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 4 + sheet.width / 8;
-                        blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
-                        blackfilterExcludeCount++;
-                        blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 2 + sheet.width / 8;
-                        blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
-                        blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 2 + sheet.width / 4 + sheet.width / 8;
-                        blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
-                        blackfilterExcludeCount++;
+                        if (blackfilterExcludeCount == 0) { // no manual settings, use auto-values
+                            blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 8;
+                            blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
+                            blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 4 + sheet.width / 8;
+                            blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
+                            blackfilterExcludeCount++;
+                            blackfilterExclude[blackfilterExcludeCount][LEFT] = sheet.width / 2 + sheet.width / 8;
+                            blackfilterExclude[blackfilterExcludeCount][TOP] = sheet.height / 4;
+                            blackfilterExclude[blackfilterExcludeCount][RIGHT] = sheet.width / 2 + sheet.width / 4 + sheet.width / 8;
+                            blackfilterExclude[blackfilterExcludeCount][BOTTOM] = sheet.height / 2 + sheet.height / 4;
+                            blackfilterExcludeCount++;
+                        }
                         // set two outside borders to start scanning for final border-scan
-                        outsideBorderscanMaskCount = 2;
-                        outsideBorderscanMask[0][LEFT] = 0;
-                        outsideBorderscanMask[0][RIGHT] = sheet.width / 2;
-                        outsideBorderscanMask[0][TOP] = 0;
-                        outsideBorderscanMask[0][BOTTOM] = sheet.height - 1;
-                        outsideBorderscanMask[1][LEFT] = sheet.width / 2;
-                        outsideBorderscanMask[1][RIGHT] = sheet.width - 1;
-                        outsideBorderscanMask[1][TOP] = 0;
-                        outsideBorderscanMask[1][BOTTOM] = sheet.height - 1;
+                        if (outsideBorderscanMaskCount == 0) { // no manual settings, use auto-values
+                            outsideBorderscanMaskCount = 2;
+                            outsideBorderscanMask[0][LEFT] = 0;
+                            outsideBorderscanMask[0][RIGHT] = sheet.width / 2;
+                            outsideBorderscanMask[0][TOP] = 0;
+                            outsideBorderscanMask[0][BOTTOM] = sheet.height - 1;
+                            outsideBorderscanMask[1][LEFT] = sheet.width / 2;
+                            outsideBorderscanMask[1][RIGHT] = sheet.width - 1;
+                            outsideBorderscanMask[1][TOP] = 0;
+                            outsideBorderscanMask[1][BOTTOM] = sheet.height - 1;
+                        }
                     }
                     // if maskScanMaximum still unset (no --layout specified), set to full sheet size now
                     if (maskScanMinimum[WIDTH] == -1) {

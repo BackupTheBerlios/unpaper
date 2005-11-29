@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
 unpaper - written by Jens Gulden 2005                                       */
 
-const char* VERSION = "1.1.1";
+const char* VERSION = "0.2";
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
@@ -9,8 +9,8 @@ const char* README =
 "The main purpose is to make scanned book pages better readable on screen\n"
 "after conversion to PDF. Additionally, unpaper might be useful to enhance\n"
 "the quality of scanned pages before performing optical character recognition\n"
-"(OCR).\n"
-"\n"
+"(OCR).\n\n"
+
 "unpaper tries to clean scanned images by removing dark edges that appeared\n"
 "through scanning or copying on areas outside the actual page content (e.g.\n"
 "dark areas between the left-hand-side and the right-hand-side of a double-\n"
@@ -21,10 +21,11 @@ const char* README =
 "Note that the automatic processing will sometimes fail. It is always a good\n"
 "idea to manually control the results of unpaper and adjust the parameter\n"
 "settings according to the requirements of the input. Each processing step can\n"
-"also be disabled individually for each sheet.\n"
-"\n"
-"Input and output files can be in either .pbm or .pgm format, as also used by\n"
-"the Linux scanning tools scanimage and scanadf.\n"
+"also be disabled individually for each sheet.\n\n"
+
+"Input and output files can be in either .pbm , .pgm or .ppm format, thus\n"
+"generally in .pnm format, as also used by the Linux scanning tools scanimage\n"
+"and scanadf.\n"
 "Conversion to PDF can e.g. be achieved with the Linux tools pgm2tiff, tiffcp\n"
 "and tiff2pdf.";
 
@@ -534,6 +535,8 @@ const char* OPTIONS =
 "-vv                                  Even more verbose output, show parameter\n"
 "                                     settings before processing.\n\n"
 
+"--time                               Output processing time consumed.\n\n"
+
 "-V --version                         Output version and build information.\n\n";
 
 //-vvv --debug                        Undocumented.
@@ -553,6 +556,11 @@ const char* HELP =
 #define abs(value) ( (value) >=0 ? (value) : -(value) )
 #define max(a, b) ( (a >= b) ? (a) : (b) )
 #define pluralS(i) ( (i > 1) ? "s" : "" )
+#define pixelValue(r, g, b) ( (r)<<16 | (g)<<8 | (b) )
+#define pixelBrightness(r, g, b) ( ( (r)+(g)+(b) ) / 3 )
+#define red(pixel) ( (pixel >> 16) & 0xff )
+#define green(pixel) ( (pixel >> 8) & 0xff )
+#define blue(pixel) ( pixel & 0xff )
 
 
 /* --- preprocessor constants ---------------------------------------------- */
@@ -624,10 +632,17 @@ typedef enum {
 	SHADINGS_COUNT
 } SHADINGS;
 
+typedef enum {
+	RED,
+	GREEN,
+	BLUE,
+	COLORCOMPONENTS_COUNT
+} COLORCOMPONENTS;
 
 typedef enum {
 	PBM,
 	PGM,
+	PPM,
 	FILETYPES_COUNT
 } FILETYPES;
 
@@ -639,6 +654,7 @@ struct IMAGE {
     int width;
     int height;
     int bitdepth;
+    BOOLEAN color;
 };
 
 
@@ -647,7 +663,8 @@ struct IMAGE {
 // file type names (see typedef FILETYPES)
 const char FILETYPE_NAMES[FILETYPES_COUNT][5] = {
     "pbm",
-    "pgm"
+    "pgm",
+    "ppm"
 };
 
 // factors for conversion to inches
@@ -905,8 +922,7 @@ void parseSize(char* s, int i[2], int dpi, int* exitCode) {
 
 
 /**
- * Outputs either a single integer value, of a pair of two integers seerated
- * by a comma.
+ * Outputs a pair of two integers seperated by a comma.
  */            
 void printInts(int i[2]) {
     printf("[%i,%i]\n", i[0], i[1]);
@@ -928,8 +944,7 @@ void parseFloats(char* s, float f[2]) {
 
 
 /**
- * Outputs either a single float value, of a pair of two floats seperated by a
- * comma.
+ * Outputs a pair of two floats seperated by a comma.
  */            
 void printFloats(float f[2]) {
     printf("[%f,%f]\n", f[0], f[1]);
@@ -1105,15 +1120,19 @@ BOOLEAN masksOverlapAny(int m[EDGES_COUNT], int masks[MAX_MASKS][EDGES_COUNT], i
  * Allocates a memory block for storing image data and fills the IMAGE-struct
  * with the specified values.
  */
-void initImage(struct IMAGE* image, int width, int height, int bitdepth) {
+void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN color) {
     int size;
     
     size = width * height;
+    if ( color ) {
+        size *= 3;
+    }
     image->buffer = (unsigned char*)malloc(size);
     memset(image->buffer, WHITE, size);
     image->width = width;
     image->height = height;
     image->bitdepth = bitdepth;
+    image->color = color;
 }
 
 
@@ -1125,37 +1144,274 @@ void initImage(struct IMAGE* image, int width, int height, int bitdepth) {
 BOOLEAN setPixel(int pixel, int x, int y, struct IMAGE* image) {
     unsigned char* p;
     int w, h;
+    int pos;
+    BOOLEAN result;
+    unsigned char r, g, b;
     
     w = image->width;
     h = image->height;
     if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
         return FALSE; //nop
     } else {
-        p = &image->buffer[(y * w) + x];
-        if (*p != (unsigned char)pixel) {
-            *p = (unsigned char)pixel;
-            return TRUE;
-        } else {
-            return FALSE;
+        pos = (y * w) + x;
+        r = (pixel >> 16) & 0xff;
+        g = (pixel >> 8) & 0xff;
+        b = pixel & 0xff;
+        if ( ! image->color ) {
+            p = &image->buffer[pos];
+            if ((r == g) && (r == b)) { // optimization (avoid division by 3)
+                pixel = r;
+            } else {
+                pixel = pixelBrightness(r, g, b); // convert to gray (will already be in most cases, but we can't be sure)
+            }
+            if (*p != (unsigned char)pixel) {
+                *p = (unsigned char)pixel;
+                return TRUE;
+            } else {
+                return FALSE;
+            }
+        } else { // color
+            pos *= 3;
+            result = FALSE;
+            p = &image->buffer[pos];
+            if (*p != r) {
+                *p = r;
+                result = TRUE;
+            }
+            p++;
+            if (*p != g) {
+                *p = g;
+                result = TRUE;
+            }
+            p++;
+            if (*p != b) {
+                *p = b;
+                result = TRUE;
+            }
+            return result;
         }
     }
 }
 
 
 /**
- * Returns the color/grayscale value of a single pixel.
+ * Sets the color/grayscale value of a single pixel.
  *
- * @return color (grayscale-value) of the requested pixel, or WHITE if the coordinates are outside the image
+ * @return TRUE if the pixel has been changed, FALSE if the original color was the one to set
+ */ 
+BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
+    unsigned char* p;
+    int w, h;
+    int pos;
+    BOOLEAN result;
+    
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return FALSE; //nop
+    } else {
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            p = &image->buffer[pos];
+            if (*p != WHITE) {
+                *p = WHITE;
+                return TRUE;
+            } else {
+                return FALSE;
+            }
+        } else { // color
+            p = &image->buffer[pos * 3];
+            result = FALSE;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            p++;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            p++;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            return result;
+        }
+    }
+}
+
+
+/**
+ * Returns the color or grayscale value of a single pixel.
+ * Always returns a color-compatible value (which may be interpreted as 8-bit grayscale)
+ *
+ * @return color or grayscale-value of the requested pixel, or WHITE if the coordinates are outside the image
  */ 
 int getPixel(int x, int y, struct IMAGE* image) {
     int w, h;
-    
+    int pos;
+    int pix;
+    unsigned char r, g, b;
+
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return pixelValue(WHITE, WHITE, WHITE);
+    } else {
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            pix = (unsigned char)image->buffer[pos];
+            return pixelValue(pix, pix, pix);
+        } else { // color
+            pos *= 3;
+            r = (unsigned char)image->buffer[pos++];
+            g = (unsigned char)image->buffer[pos++];
+            b = (unsigned char)image->buffer[pos];
+            return pixelValue(r, g, b);
+        }
+    }
+}
+
+
+/**
+ * Returns a color component of a single pixel (0-255).
+ *
+ * @param colorComponent either RED, GREEN or BLUE
+ * @return color or grayscale-value of the requested pixel, or WHITE if the coordinates are outside the image
+ */ 
+int getPixelComponent(int x, int y, int colorComponent, struct IMAGE* image) {
+    int w, h;
+    int pos;
+
     w = image->width;
     h = image->height;
     if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
         return WHITE;
     } else {
-        return (unsigned char)image->buffer[(y * w) + x];
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            return (unsigned char)image->buffer[pos];
+        } else { // color
+            return (unsigned char)image->buffer[pos + colorComponent];
+        }
+    }
+}
+
+
+/**
+ * Returns the grayscale (=brightness) value of a single pixel.
+ *
+ * @return grayscale-value of the requested pixel, or WHITE if the coordinates are outside the image
+ */ 
+int getPixelGrayscale(int x, int y, struct IMAGE* image) {
+    int w, h;
+    int pos;
+
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return WHITE;
+    } else {
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            return image->buffer[pos];
+        } else { // color
+            pos *= 3;
+            return pixelBrightness((unsigned char)image->buffer[pos++], (unsigned char)image->buffer[pos++], (unsigned char)image->buffer[pos]);
+        }
+    }
+}
+
+
+/**
+ * Returns the 'lightness' value of a single pixel. For color images, this
+ * value denotes the minimum brightness of a single color-component in the
+ * total color, which means that any color is considered 'dark' which has
+ * either the red, the green or the blue component (or, of course, several
+ * of them) set to a high value. In some way, this is a measure how close a
+ * color is to white.
+ * For grayscale images, this value is equal to the pixel brightness.
+ *
+ * @return lightness-value (the higher, the lighter) of the requested pixel, or WHITE if the coordinates are outside the image
+ */ 
+int getPixelLightness(int x, int y, struct IMAGE* image) {
+    int w, h;
+    int pos;
+    unsigned char r, g, b;
+
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return WHITE;
+    } else {
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            return image->buffer[pos];
+        } else { // color
+            pos *= 3;
+            r = (unsigned char)image->buffer[pos++];
+            g = (unsigned char)image->buffer[pos++];
+            b = (unsigned char)image->buffer[pos];
+            // minimum of all 3:
+            if (r < b) {
+                if (r < g) {
+                    return r;
+                } else { // g <= r && r < b
+                    return g;
+                }
+            } else if (g < b) {
+                return g;
+            } else {
+                return b;
+            }
+        }
+    }
+}
+
+
+/**
+ * Returns the 'inverse-darkness' value of a single pixel. For color images, this
+ * value denotes the maximum brightness of a single color-component in the
+ * total color, which means that any color is considered 'light' which has
+ * either the red, the green or the blue component (or, of course, several
+ * of them) set to a high value. In some way, this is a measure how far away a
+ * color is to black.
+ * For grayscale images, this value is equal to the pixel brightness.
+ *
+ * @return inverse-darkness-value (the LOWER, the darker) of the requested pixel, or WHITE if the coordinates are outside the image
+ */ 
+int getPixelDarknessInverse(int x, int y, struct IMAGE* image) {
+    int w, h;
+    int pos;
+    unsigned char r, g, b;
+
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return WHITE;
+    } else {
+        pos = (y * w) + x;
+        if ( ! image->color ) {
+            return image->buffer[pos];
+        } else { // color
+            pos *= 3;
+            r = (unsigned char)image->buffer[pos++];
+            g = (unsigned char)image->buffer[pos++];
+            b = (unsigned char)image->buffer[pos];
+            // maximum of all 3:
+            if (r > b) {
+                if (r > g) {
+                    return r;
+                } else { // g >= r && r > b
+                    return g;
+                }
+            } else if (g > b) {
+                return g;
+            } else {
+                return b;
+            }
+        }
     }
 }
 
@@ -1169,7 +1425,7 @@ void clearImageArea(int x, int y, int width, int height, struct IMAGE* image) {
     // naive but generic implementation
     for (row = 0; row < height; row++) {
         for (col = 0; col < width; col++) {
-            setPixel(WHITE, x+col, y+row, image);
+            clearPixel(x+col, y+row, image);
         }
     }
 }
@@ -1249,7 +1505,7 @@ int brightnessRect(int x1, int y1, int x2, int y2, struct IMAGE* image) {
     count = (x2-x1+1)*(y2-y1+1);
     for (x = x1; x <= x2; x++) {
         for (y = y1; y <= y2; y++) {
-            pixel = getPixel(x, y, image);
+            pixel = getPixelGrayscale(x, y, image);
             total += pixel;
         }
     }
@@ -1258,11 +1514,53 @@ int brightnessRect(int x1, int y1, int x2, int y2, struct IMAGE* image) {
 
 
 /**
- * Counts the number of pixels in a rectangular area whose color/grayscale
- * values ranges between minColor and maxColor. Optionally, the area can get
+ * Returns the average lightness of a rectagular area.
+ */
+int lightnessRect(int x1, int y1, int x2, int y2, struct IMAGE* image) {
+    int x;
+    int y;
+    int pixel;
+    int total;
+    int count;
+    total = 0;
+    count = (x2-x1+1)*(y2-y1+1);
+    for (x = x1; x <= x2; x++) {
+        for (y = y1; y <= y2; y++) {
+            pixel = getPixelLightness(x, y, image);
+            total += pixel;
+        }
+    }
+    return total / count;
+}
+
+
+/**
+ * Returns the average darkness of a rectagular area.
+ */
+int darknessInverseRect(int x1, int y1, int x2, int y2, struct IMAGE* image) {
+    int x;
+    int y;
+    int pixel;
+    int total;
+    int count;
+    total = 0;
+    count = (x2-x1+1)*(y2-y1+1);
+    for (x = x1; x <= x2; x++) {
+        for (y = y1; y <= y2; y++) {
+            pixel = getPixelDarknessInverse(x, y, image);
+            total += pixel;
+        }
+    }
+    return total / count;
+}
+
+
+/**
+ * Counts the number of pixels in a rectangular area whose grayscale
+ * values ranges between minColor and maxBrightness. Optionally, the area can get
  * cleared with white color while counting.
  */
-int countPixelsRect(int left, int top, int right, int bottom, int minColor, int maxColor, BOOLEAN clear, struct IMAGE* image) {
+int countPixelsRect(int left, int top, int right, int bottom, int minColor, int maxBrightness, BOOLEAN clear, struct IMAGE* image) {
     int x;
     int y;
     int pixel;
@@ -1271,10 +1569,10 @@ int countPixelsRect(int left, int top, int right, int bottom, int minColor, int 
     count = 0;
     for (y = top; y <= bottom; y++) {
         for (x = left; x <= right; x++) {
-            pixel = getPixel(x, y, image);
-            if ((pixel>=minColor) && (pixel <= maxColor)) {
+            pixel = getPixelGrayscale(x, y, image);
+            if ((pixel>=minColor) && (pixel <= maxBrightness)) {
                 if (clear==TRUE) {
-                    setPixel(WHITE, x, y, image);
+                    clearPixel(x, y, image);
                 }
                 count++;
             }
@@ -1285,9 +1583,9 @@ int countPixelsRect(int left, int top, int right, int bottom, int minColor, int 
 
 
 /**
- * Fills a rectangular area of pixels with a specified color.
+ * Clears a rectangular area of pixels with white.
  */
-int fillRect(int color, int left, int top, int right, int bottom, struct IMAGE* image) {
+int clearRect(int left, int top, int right, int bottom, struct IMAGE* image) {
     int x;
     int y;
     int count;
@@ -1295,7 +1593,7 @@ int fillRect(int color, int left, int top, int right, int bottom, struct IMAGE* 
     count = 0;
     for (y = top; y <= bottom; y++) {
         for (x = left; x <= right; x++) {
-            if (setPixel(color, x, y, image)) {
+            if (clearPixel(x, y, image)) {
                 count++;
             }
         }
@@ -1320,18 +1618,18 @@ int countPixelNeighborsLevel(int x, int y, BOOLEAN clear, int level, int whiteMi
     // upper and lower rows
     for (xx = x - level; xx <= x + level; xx++) {
         // upper row
-        pixel = getPixel(xx, y - level, image);
-        if (pixel < whiteMin) {
+        pixel = getPixelLightness(xx, y - level, image);
+        if (pixel < whiteMin) { // non-light pixel found
             if (clear == TRUE) {
-                setPixel(WHITE, xx, y - level, image);
+                clearPixel(xx, y - level, image);
             }
             count++;
         }        
         // lower row
-        pixel = getPixel(xx, y + level, image);
+        pixel = getPixelLightness(xx, y + level, image);
         if (pixel < whiteMin) {
             if (clear == TRUE) {
-                setPixel(WHITE, xx, y + level, image);
+                clearPixel(xx, y + level, image);
             }
             count++;
         }        
@@ -1339,18 +1637,18 @@ int countPixelNeighborsLevel(int x, int y, BOOLEAN clear, int level, int whiteMi
     // middle rows
     for (yy = y-(level-1); yy <= y+(level-1); yy++) {
         // first col
-        pixel = getPixel(x - level, yy, image);
+        pixel = getPixelLightness(x - level, yy, image);
         if (pixel < whiteMin) {
             if (clear == TRUE) {
-                setPixel(WHITE, x - level, yy, image);
+                clearPixel(x - level, yy, image);
             }
             count++;
         }        
         // last col
-        pixel = getPixel(x + level, yy, image);
+        pixel = getPixelLightness(x + level, yy, image);
         if (pixel < whiteMin) {
             if (clear == TRUE) {
-                setPixel(WHITE, x + level, yy, image);
+                clearPixel(x + level, yy, image);
             }
             count++;
         }        
@@ -1359,17 +1657,16 @@ int countPixelNeighborsLevel(int x, int y, BOOLEAN clear, int level, int whiteMi
     for (yy = y-level; yy <= y+level; yy++) {
         for (xx = x-level; xx <= x+level; xx++) {
             if (abs(xx-x)==level || abs(yy-y)==level) {
-                pixel = getPixel(xx, yy, image);
+                pixel = getPixelLightness(xx, yy, image);
                 if (pixel < whiteMin) {
                     if (clear==TRUE) {
-                        setPixel(WHITE, xx, yy, image);
+                        clearPixel(xx, yy, image);
                     }
                     count++;
                 }
             }
         }    
-    }
-    */
+    }*/
     return count;
 }
 
@@ -1403,7 +1700,7 @@ void clearPixelNeighbors(int x, int y, int whiteMin, struct IMAGE* image) {
     int level;
     int lCount;
 
-    setPixel(WHITE, x, y, image);    
+    clearPixel(x, y, image);    
     lCount = -1;
     for (level = 1; lCount != 0; level++) { // lCount will become 0, otherwise countPixelNeighbors() would previously have delivered a bigger value (and this here would not have been called)
         lCount = countPixelNeighborsLevel(x, y, TRUE, level, whiteMin, image);
@@ -1439,7 +1736,7 @@ int fillLine(int x, int y, int stepX, int stepY, int color, int maskMin, int mas
     while (1==1) { // !
         x += stepX;
         y += stepY;
-        pixel = getPixel(x, y, image);
+        pixel = getPixelGrayscale(x, y, image);
         if ((pixel>=maskMin) && (pixel<=maskMax)) {
             intensityCount = intensity; // reset counter
         } else {
@@ -1494,7 +1791,7 @@ void floodFill(int x, int y, int color, int maskMin, int maskMax, int intensity,
     int pixel;
     
     // is current pixel to be filled?
-    pixel = getPixel(x, y, image);
+    pixel = getPixelGrayscale(x, y, image);
     if ((pixel>=maskMin) && (pixel<=maskMax)) {
         // first, fill a 'cross' (both vertical, horizontal line)
         setPixel(color, x, y, image);
@@ -1530,11 +1827,11 @@ BOOLEAN fileExists(char* filename) {
 
 
 /**
- * Loads image data from a file in pgm or pbm format.
+ * Loads image data from a file in pnm format.
  *
  * @param filename name of file to load
  * @param image structure to hold loaded image
- * @param filetype returns the type of the loaded image
+ * @param type returns the type of the loaded image
  * @return TRUE on success, FALSE on failure
  */
 BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
@@ -1581,9 +1878,15 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
     if (strcmp(magic, "P4")==0) {
         *type = PBM;
         image->bitdepth = 1;
+        image->color = FALSE;
     } else if (strcmp(magic, "P5")==0) {
         *type = PGM;
         image->bitdepth = 8;
+        image->color = FALSE;
+    } else if (strcmp(magic, "P6")==0) {
+        *type = PPM;
+        image->bitdepth = 8;
+        image->color = TRUE;
     } else {
         printf("*** error: input file format using magic '%s' is unknown.\n", magic);
         return FALSE;
@@ -1601,9 +1904,10 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
     // now reached width/height pair as decimal ascii
     sscanf(word, "%i", &image->width);
     fscanf(f, "%i", &image->height);
+    fgetc(f); // skip \n after width/height pair
     if (*type == PBM) {
-        bytesPerLine = (image->width + 7) >> 3; // / 8;
-    } else { // PGM
+        bytesPerLine = (image->width + 7) / 8;
+    } else { // PGM or PPM
         fscanf(f, "%s", word);
         while (word[0]=='#') { // skip comment lines
             do {
@@ -1611,12 +1915,17 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
             } while ((feof(f) == 0) && (c != '\n'));
             fscanf(f, "%s", word);
         }
+        // read max color value
         sscanf(word, "%i", &maxColorIndex);
+        fgetc(f); // skip \n after max color index
         if (maxColorIndex > 255) {
-            printf("*** error: pgm files with more than 255 colors are not supported.\n");
+            printf("*** error: grayscale / color-component bit depths above 8 are not supported.\n");
             return FALSE;
         }
         bytesPerLine = image->width;
+        if (*type == PPM) {
+            bytesPerLine *= 3; // 3 color-components per pixel
+        }
     }
 
     // read binary image data
@@ -1672,9 +1981,11 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
 BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwrite, float blackThreshold) {
     unsigned char* buf;
     int bytesPerLine;
+    int inputSize;
     int outputSize;
-    int lineOffsetInput;
     int lineOffsetOutput;
+    int offsetInput;
+    int offsetOutput;
     int x;
     int y;
     int pixel;
@@ -1686,33 +1997,22 @@ BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwri
     FILE* outputFile;
     int blackThresholdAbs;
     BOOLEAN result;
-    int depth;
 
     if (verbose>=VERBOSE_MORE) {
         printf("saving file %s.\n", filename);
     }
 
     result = TRUE;
-    switch (type) {
-        case PBM: 
-            depth = 1; // type PBM always has 1 bit depth
-            break;
-        case PGM: 
-        default:
-            depth = 8; // type PGM always has 8 bit depth
-            break;
-    }
-    if (depth == 1) { // convert to pbm
+    if (type == PBM) { // convert to pbm
         blackThresholdAbs = WHITE * (1.0 - blackThreshold);
         bytesPerLine = (image->width + 7) >> 3; // / 8;
         outputSize = bytesPerLine * image->height;
         buf = (unsigned char*)malloc(outputSize);
         memset(buf, 0, outputSize);
-        lineOffsetInput = 0;
         lineOffsetOutput = 0;
         for (y = 0; y < image->height; y++) {
             for (x = 0; x < image->width; x++) {
-                pixel = image->buffer[lineOffsetInput + x];
+                pixel = getPixelGrayscale(x, y, image);
                 b = x >> 3; // / 8;
                 off = x & 7; // % 8;
                 bit = 128>>off;
@@ -1725,17 +2025,37 @@ BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwri
                 buf[lineOffsetOutput+b] = val;
             }
             lineOffsetOutput += bytesPerLine;
-            lineOffsetInput += image->width;
         }
-    } else {
+    } else if (type == PPM) { // maybe convert to color
+        outputSize = image->width * image->height * 3;
+        if (image->color) { // color already
+            buf = image->buffer;
+        } else { // convert to color
+            buf = (unsigned char*)malloc(outputSize);
+            inputSize = image->width * image->height;
+            offsetOutput = 0;
+            for (offsetInput = 0; offsetInput < inputSize; offsetInput++) {
+                pixel = image->buffer[offsetInput];
+                buf[offsetOutput++] = pixel;
+                buf[offsetOutput++] = pixel;
+                buf[offsetOutput++] = pixel;
+            }
+        }
+    } else { // PGM
         outputSize = image->width * image->height;
         buf = image->buffer;
     }
     
-    if (type == PBM) {
-        outputMagic = "P4";
-    } else { // PGM
-        outputMagic = "P5";
+    switch (type) {
+        case PBM:
+            outputMagic = "P4";
+            break;
+        case PPM:
+            outputMagic = "P6";
+            break;
+        default: // PGM
+            outputMagic = "P5";
+            break;
     }
 
     // write to file
@@ -1744,12 +2064,12 @@ BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwri
         if (outputFile != 0) {
             fprintf(outputFile, "%s\n", outputMagic);
             fprintf(outputFile, "# generated by unpaper\n");
-            fprintf(outputFile, "%i %u\n", image->width, image->height);
-            if (type == PGM) {
-                fprintf(outputFile, "255\n"); // bg color (?)
+            fprintf(outputFile, "%u %u\n", image->width, image->height);
+            if ((type == PGM)||(type == PPM)) {
+                fprintf(outputFile, "255\n"); // maximum color index per color-component
             }
             fwrite(buf, 1, outputSize, outputFile);
-            fprintf(outputFile, "%c", 0); // zero-termination byte
+            //fprintf(outputFile, "%c", 0); // zero-termination byte
             fclose(outputFile);
         } else {
             printf("*** error: Cannot open output file '%s'.\n", filename);
@@ -1770,12 +2090,17 @@ BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwri
  * Saves the image if full debugging mode is enabled.
  */
 void saveDebug(char* filename, struct IMAGE* image) {
-    struct IMAGE saveimage;
+    int type;
     
-    saveimage = *image;
-    saveimage.bitdepth = 8;
     if (verbose >= VERBOSE_DEBUG_SAVE) {
-        saveImage(filename, &saveimage, PGM, TRUE, 0.5); // 0.5 is a dummy, not used because PGM depth
+        if (image->color) {
+            type = PPM;
+        } else if (image->bitdepth == 1) {
+            type = PBM;
+        } else {
+            type = PGM;
+        }
+        saveImage(filename, image, type, TRUE, 0.5); // 0.5 is a dummy, not used because PGM depth
     }
 }
 
@@ -1881,7 +2206,7 @@ int detectEdgeRotationPeak(double m, int deskewScanSize, float deskewScanDepth, 
             yy = y[lineStep];
             y[lineStep] += shiftY;
             if ((xx >= left) && (xx <= right) && (yy >= top) && (yy <= bottom)) {
-                pixel = getPixel(xx, yy, image);
+                pixel = getPixelDarknessInverse(xx, yy, image);
                 blackness += (255 - pixel);
             }
         }
@@ -1951,7 +2276,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     if ((deskewScanEdges & 1<<LEFT) != 0) {
         // left
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 1, 0, left, top, right, bottom, image);
-        if (verbose >= VERBOSE_DEBUG) {
+        if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation left: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
@@ -1959,7 +2284,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     if ((deskewScanEdges & 1<<TOP) != 0) {
         // top
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, 1, left, top, right, bottom, image);
-        if (verbose >= VERBOSE_DEBUG) {
+        if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation top: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
@@ -1967,7 +2292,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     if ((deskewScanEdges & 1<<RIGHT) != 0) {
         // right
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, -1, 0, left, top, right, bottom, image);
-        if (verbose >= VERBOSE_DEBUG) {
+        if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation right: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
@@ -1975,7 +2300,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     if ((deskewScanEdges & 1<<BOTTOM) != 0) {
         // bottom
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, -1, left, top, right, bottom, image);
-        if (verbose >= VERBOSE_DEBUG) {
+        if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation bottom: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
@@ -1991,13 +2316,13 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
         total += sqr(rotation[i]-average);
     }
     deviation = sqrt(total);
-    if (verbose >= VERBOSE_DEBUG) {
+    if (verbose >= VERBOSE_NORMAL) {
         printf("rotation average: %f  deviation: %f  rotation-scan-deviation (maximum): %f  [%i,%i,%i,%i]\n", average, deviation, deskewScanDeviation, left,top,right,bottom);
     }
     if (deviation <= deskewScanDeviation) {
         return average;
     } else {
-        if (verbose >= VERBOSE_NORMAL) {
+        if (verbose >= VERBOSE_NONE) {
             printf("out of deviation range - NO ROTATING\n");
         }
         return 0.0;
@@ -2082,6 +2407,7 @@ void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* 
             alphaNew = alpha + radians;
             
 #ifndef NOSINCOS
+            // GNU compatible compilers:
             sincos(alphaNew, &sinval, &cosval); 
             // (On gcc 3.3 (Linux) the above line causes a compiler warning about
             // 'implicit declaration of function sincos', although sincos 
@@ -2161,8 +2487,7 @@ void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* 
             pixel = getPixel(origX, origY, source);
             setPixel(pixel, x, y, target);
         }
-    }
-    */
+    }*/
 }
 
 
@@ -2210,6 +2535,7 @@ void convertFromQPixels(struct IMAGE* qpixelImage, struct IMAGE* image) {
     int yy;
     int pixel;
     int a,b,c,d;
+    int r, g, bl;
     
     yy = 0;
     for (y = 0; y < image->height; y++) {
@@ -2219,7 +2545,10 @@ void convertFromQPixels(struct IMAGE* qpixelImage, struct IMAGE* image) {
             b = getPixel(xx+1, yy, qpixelImage);
             c = getPixel(xx, yy+1, qpixelImage);
             d = getPixel(xx+1, yy+1, qpixelImage);
-            pixel = (a+b+c+d)/4;
+            r = (red(a) + red(b) + red(c) + red(d)) / 4;
+            g = (green(a) + green(b) + green(c) + green(d)) / 4;
+            bl = (blue(a) + blue(b) + blue(c) + blue(d)) / 4;
+            pixel = pixelValue(r, g, bl);
             setPixel(pixel, x, y, image);
             xx += 2;
         }
@@ -2254,6 +2583,9 @@ void stretch(int w, int h, struct IMAGE* image) {
     int xx;
     int yy;
     int sum;
+    int sumR;
+    int sumG;
+    int sumB;
     int sumCount;
     int pixel;
 
@@ -2262,7 +2594,7 @@ void stretch(int w, int h, struct IMAGE* image) {
     }
 
     // allocte new buffer's memory
-    initImage(&newimage, w, h, image->bitdepth);
+    initImage(&newimage, w, h, image->bitdepth, image->color);
     
     blockWidth = image->width / w; // (0 if enlarging, i.e. w > image->width)
     blockHeight = image->height / h;
@@ -2318,15 +2650,30 @@ void stretch(int w, int h, struct IMAGE* image) {
             if ((matrixWidth == 1) && (matrixHeight == 1)) { // optimization: quick version
                 pixel = getPixel(matrixX, matrixY, image);
             } else {
-                sum = 0;
                 sumCount = 0;
-                for (yy = 0; yy < matrixHeight; yy++) {
-                    for (xx = 0; xx < matrixWidth; xx++) {
-                        sum += getPixel(matrixX + xx, matrixY + yy, image);
-                        sumCount++;
+                if (!image->color) {
+                    sum = 0;
+                    for (yy = 0; yy < matrixHeight; yy++) {
+                        for (xx = 0; xx < matrixWidth; xx++) {
+                            sum += getPixel(matrixX + xx, matrixY + yy, image);
+                            sumCount++;
+                        }
                     }
+                    pixel = sum / sumCount;
+                } else { // color
+                    sumR = 0;
+                    sumG = 0;
+                    sumB = 0;
+                    for (yy = 0; yy < matrixHeight; yy++) {
+                        for (xx = 0; xx < matrixWidth; xx++) {
+                            sumR += getPixelComponent(matrixX + xx, matrixY + yy, RED, image);
+                            sumG += getPixelComponent(matrixX + xx, matrixY + yy, GREEN, image);
+                            sumB += getPixelComponent(matrixX + xx, matrixY + yy, BLUE, image);
+                            sumCount++;
+                        }
+                    }
+                    pixel = pixelValue( sumR/sumCount, sumG/sumCount, sumB/sumCount );
                 }
-                pixel = sum / sumCount;
             }
             setPixel(pixel, x, y, &newimage);
             
@@ -2365,7 +2712,7 @@ void resize(int w, int h, struct IMAGE* image) {
     float wRat;
     float hRat;
     
-    if (verbose >= VERBOSE_MORE) {
+    if (verbose >= VERBOSE_NORMAL) {
         printf("resizing %ix%i -> %ix%i\n", image->width, image->height, w, h);
     }
 
@@ -2382,7 +2729,7 @@ void resize(int w, int h, struct IMAGE* image) {
         hh = h;
     }
     stretch(ww, hh, image);
-    initImage(&newimage, w, h, image->bitdepth);
+    initImage(&newimage, w, h, image->bitdepth, image->color);
     centerImage(image, 0, 0, w, h, &newimage);
     // free old buffer
     free(image->buffer);
@@ -2441,7 +2788,7 @@ int detectEdge(int startX, int startY, int shiftX, int shiftY, int maskScanSize,
         count++;
         // is blackness below threshold*average?
         if ((blackness < ((maskScanThreshold*total)/count))||(blackness==0)) { // this will surely become true when pos reaches the outside of the actual image area and blacknessRect() will deliver 0 because all pixels outside are considered white
-            return count; // return here - always return absolute value of shifting difference
+            return count; // ! return here, return absolute value of shifting difference
         }
         left += shiftX;
         right += shiftX;
@@ -2659,7 +3006,7 @@ void flipRotate(int direction, struct IMAGE* image) {
     int yy;
     int pixel;
     
-    initImage(&newimage, image->height, image->width, image->bitdepth); // exchanged width and height
+    initImage(&newimage, image->height, image->width, image->bitdepth, image->color); // exchanged width and height
     for (y = 0; y < image->height; y++) {
         xx = ((direction > 0) ? image->height - 1 : 0) - y * direction;
         for (x = 0; x < image->width; x++) {
@@ -2697,7 +3044,6 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
     int shiftY;
     int l, t, r, b;
     int total;
-    int thresholdAbs;
     int diffX;
     int diffY;
     int mask[EDGES_COUNT];
@@ -2705,7 +3051,6 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
 
     thresholdBlack = (int)(WHITE * (1.0-blackThreshold));
     total = size * dep;
-    thresholdAbs = (int)(total * threshold);
     if (stepX != 0) { // horizontal scanning
         left = 0;
         top = 0;
@@ -2737,8 +3082,8 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
         }
         alreadyExcludedMessage = FALSE;
         while ((l < image->width) && (t < image->height)) { // single scanning "stripe"
-            blackness = countPixelsRect(l, t, r, b, 0, thresholdBlack, FALSE, image);
-            if (blackness >= thresholdAbs) { // found a solidly black area
+            blackness = 255 - darknessInverseRect(l, t, r, b, image);
+            if (blackness >= 255*threshold) { // found a solidly black area
                 mask[LEFT] = l;
                 mask[TOP] = t;
                 mask[RIGHT] = r;
@@ -2751,7 +3096,7 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
                     // start flood-fill in this area (on each pixel to make sure we get everything, in most cases first flood-fill from first pixel will delete all other black pixels in the area already)
                     for (y = t; y <= b; y++) {
                         for (x = l; x <= r; x++) {
-                            floodFill(x, y, WHITE, 0, thresholdBlack, intensity, image);
+                            floodFill(x, y, pixelValue(WHITE, WHITE, WHITE), 0, thresholdBlack, intensity, image);
                         }
                     }
                 } else {
@@ -2808,11 +3153,11 @@ int noisefilter(int intensity, float whiteThreshold, struct IMAGE* image) {
     count = 0;
     for (y = 0; y < image->height; y++) {
         for (x = 0; x < image->width; x++) {
-            pixel = getPixel(x, y, image);
-            if (pixel < whiteMin) {
-                neighbors = countPixelNeighbors(x, y, intensity, whiteMin, image);
-                if (neighbors <= intensity) {
-                    clearPixelNeighbors(x, y, whiteMin, image);
+            pixel = getPixelDarknessInverse(x, y, image);
+            if (pixel < whiteMin) { // one dark pixel found
+                neighbors = countPixelNeighbors(x, y, intensity, whiteMin, image); // get number of non-light pixels in neighborhood
+                if (neighbors <= intensity) { // ...not more than 'intensity'?
+                    clearPixelNeighbors(x, y, whiteMin, image); // delete area
                     count++;
                 }
             }
@@ -2904,7 +3249,7 @@ int grayfilter(int grayfilterScanSize[DIRECTIONS_COUNT], int grayfilterScanStep[
     int right;
     int bottom;
     int count;
-    int blackness;
+    int lightness;
     int thresholdAbs;
     int total;
     int result;
@@ -2921,9 +3266,9 @@ int grayfilter(int grayfilterScanSize[DIRECTIONS_COUNT], int grayfilterScanStep[
     while (TRUE) { // !
         count = countPixelsRect(left, top, right, bottom, 0, blackMax, FALSE, image);
         if (count == 0) {
-            blackness = WHITE - brightnessRect(left, top, right, bottom, image);
-            if (blackness < thresholdAbs) {
-                result += fillRect(WHITE, left, top, right, bottom, image);
+            lightness = lightnessRect(left, top, right, bottom, image);
+            if ((WHITE - lightness) < thresholdAbs) { // (lower threshold->more deletion)
+                result += clearRect(left, top, right, bottom, image);
             }
         }
         if (left < image->width) { // not yet at end of row
@@ -2963,9 +3308,9 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
         if (verbose >= VERBOSE_NORMAL) {
             printf("centering mask [%i,%i,%i,%i] (%i,%i): %i, %i\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
         }
-        initImage(&newimage, width, height, image->bitdepth);
+        initImage(&newimage, width, height, image->bitdepth, image->color);
         copyImageArea(left, top, width, height, image, 0, 0, &newimage);
-        fillRect(WHITE, left, top, right, bottom, image);
+        clearRect(left, top, right, bottom, image);
         copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
         free(newimage.buffer);
     } else {
@@ -3005,9 +3350,9 @@ void alignMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], int direction, i
     if (verbose >= VERBOSE_NORMAL) {
         printf("aligning mask [%i,%i,%i,%i] (%i,%i): %i, %i\n", mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], targetX, targetY, targetX - mask[LEFT], targetY - mask[TOP]);
     }
-    initImage(&newimage, width, height, image->bitdepth);
+    initImage(&newimage, width, height, image->bitdepth, image->color);
     copyImageArea(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image, 0, 0, &newimage);
-    fillRect(WHITE, mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image);
+    clearRect(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image);
     copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
     free(newimage.buffer);
 }
@@ -3017,7 +3362,6 @@ void alignMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], int direction, i
  * Moves a rectangular area of pixels to be centered inside a specified area coordinates.
  */
 void centerMaskInsideMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], struct IMAGE* image) {
-    //centerMask( (outside[LEFT]+outside[RIGHT])/2, (outside[TOP]+outside[BOTTOM])/2, mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image);
     alignMask(mask, outside, 0, NULL, image);
 }
 
@@ -3143,8 +3487,8 @@ void applyBorder(int border[EDGES_COUNT], int borderColor, struct IMAGE* image) 
 /**
  * The main program.
  */
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
+
     // --- parameter variables ---
     int layout;
     int startSheet;
@@ -3264,6 +3608,7 @@ int main(int argc, char* argv[])
     int replaceBlank[MAX_MULTI_INDEX];
     int replaceBlankCount;    
     BOOLEAN overwrite;
+    BOOLEAN showtime;
     int dpi;
     
     // --- local variables ---
@@ -3280,6 +3625,7 @@ int main(int argc, char* argv[])
     int previousWidth;
     int previousHeight;
     int previousBitdepth;
+    BOOLEAN previousColor;
     int inputFileSequencePos; // index 'looping' through input-file-seq (without additionally inserted blank images)
     int outputFileSequencePos; // index 'looping' through output-file-seq
     int inputFileSequencePosTotal; // index 'looping' through input-file-seq (with additional blank images)
@@ -3291,11 +3637,13 @@ int main(int argc, char* argv[])
     char s2[1023];
     char debugFilename[100];
     struct IMAGE sheet;
+    struct IMAGE sheetBackup;
     struct IMAGE originalSheet;
     struct IMAGE qpixelSheet;
     struct IMAGE page;
     char* layoutStr;
     char* inputTypeName; 
+    char* inputTypeNames[MAX_PAGES];
     int inputType;
     int filterResult;
     double rotation;
@@ -3305,6 +3653,7 @@ int main(int argc, char* argv[])
     int outputType;
     int outputDepth;
     int bd;
+    BOOLEAN col;
     BOOLEAN success;
     BOOLEAN done;
     BOOLEAN anyWildcards;
@@ -3331,14 +3680,14 @@ int main(int argc, char* argv[])
     page.buffer = NULL;
     exitCode = 0; // error code to return
     trigonometryCacheBaseSize = 0;
-    bd = 1; // default bitdepth if not resolvable (empty)
+    bd = 1; // default bitdepth if not resolvable (i.e. usually empty input, so bd=1 is good choice)
+    col = FALSE; // default no color if not resolvable
     
-    // explicitly un-initialize variables that are sometimes not used,
-    // to avoid compiler warnings
+    // explicitly un-initialize variables that are sometimes not used to avoid compiler warnings
     qpixelSheet.buffer = NULL; // used optionally, deactivated by --no-qpixels
     trigonometryCache = NULL;  // used optionally, activated by --cache
-    startTime = 0;             // used optionally in debug mode -vv
-    endTime = 0;               // used optionally in debug mode -vv
+    startTime = 0;             // used optionally in debug mode -vv or with --time
+    endTime = 0;               // used optionally in debug mode -vv or with --time
     inputNr = -1;              // will be initialized in first run of main-loop
     outputNr = -1;             // will be initialized in first run of main-loop
 
@@ -3358,6 +3707,7 @@ int main(int argc, char* argv[])
     outputFileSequencePos = 0;
     inputFileSequencePosTotal = 0;
     previousWidth = previousHeight = previousBitdepth = -1;
+    previousColor = FALSE;
     first = TRUE;
     
     for (nr = startSheet; (endSheet == -1) || (nr <= endSheet); nr++) {
@@ -3409,7 +3759,7 @@ int main(int argc, char* argv[])
         maskScanThreshold[HORIZONTAL] = maskScanThreshold[VERTICAL] = 0.1;
         maskScanMinimum[WIDTH] = maskScanMinimum[HEIGHT] = 100;
         maskScanMaximum[WIDTH] = maskScanMaximum[HEIGHT] = -1; // set default later
-        maskColor = 255;
+        maskColor = pixelValue(WHITE, WHITE, WHITE);
         deskewScanEdges = (1<<LEFT) | (1<<RIGHT);
         deskewScanSize = 1500;
         deskewScanDepth = 0.5;
@@ -3452,6 +3802,7 @@ int main(int argc, char* argv[])
         insertBlankCount = 0;
         replaceBlankCount = 0;
         overwrite = FALSE;
+        showtime = FALSE;
         dpi = 300;
 
 
@@ -3711,7 +4062,6 @@ int main(int argc, char* argv[])
             // --border  -B
             } else if ((strcmp(argv[i], "-B")==0 || strcmp(argv[i], "--border")==0)) {
                 sscanf(argv[++i],"%i,%i,%i,%i", &border[LEFT], &border[TOP], &border[RIGHT], &border[BOTTOM]);
-                //noBorderScanMultiIndexCount = -1; // disable auto-detection of borders
 
             // --pre-border
             } else if (strcmp(argv[i], "--pre-border")==0) {
@@ -3724,7 +4074,6 @@ int main(int argc, char* argv[])
 
             // --no-blackfilter
             } else if (strcmp(argv[i], "--no-blackfilter")==0) {
-                //blackfilterScanDirections = 0;
                 parseMultiIndex(&i, argv, noBlackfilterMultiIndex, &noBlackfilterMultiIndexCount);
 
             // --blackfilter-scan-direction  -bn
@@ -3767,7 +4116,6 @@ int main(int argc, char* argv[])
 
             // --no-noisefilter
             } else if (strcmp(argv[i], "--no-noisefilter")==0) {
-                //noisefilterIntensity = 0;
                 parseMultiIndex(&i, argv, noNoisefilterMultiIndex, &noNoisefilterMultiIndexCount);
 
             // --noisefilter-intensity  -ni 
@@ -3811,7 +4159,6 @@ int main(int argc, char* argv[])
 
             // --no-mask-scan
             } else if (strcmp(argv[i], "--no-mask-scan")==0) {
-                //maskScanDirections = 0;
                 parseMultiIndex(&i, argv, noMaskScanMultiIndex, &noMaskScanMultiIndexCount);
 
             // --mask-scan-direction  -mn
@@ -3838,6 +4185,10 @@ int main(int argc, char* argv[])
             } else if (strcmp(argv[i], "-mm")==0 || strcmp(argv[i], "--mask-scan-minimum")==0) {
                 sscanf(argv[++i],"%i,%i", &maskScanMinimum[WIDTH], &maskScanMinimum[HEIGHT]);
 
+            // --mask-scan-maximum  -mM
+            } else if (strcmp(argv[i], "-mM")==0 || strcmp(argv[i], "--mask-scan-maximum")==0) {
+                sscanf(argv[++i],"%i,%i", &maskScanMaximum[WIDTH], &maskScanMaximum[HEIGHT]);
+
             // --mask-color
             } else if (strcmp(argv[i], "-mc")==0 || strcmp(argv[i], "--mask-color")==0) {
                 sscanf(argv[++i],"%i", &maskColor);
@@ -3845,7 +4196,6 @@ int main(int argc, char* argv[])
 
             // --no-mask-center
             } else if (strcmp(argv[i], "--no-mask-center")==0) {
-                //maskcenter = FALSE;
                 parseMultiIndex(&i, argv, noMaskCenterMultiIndex, &noMaskCenterMultiIndexCount);
 
 
@@ -4025,6 +4375,10 @@ int main(int argc, char* argv[])
             } else if (strcmp(argv[i], "--overwrite")==0) {
                 overwrite = TRUE;
 
+            // --time
+            } else if (strcmp(argv[i], "--time")==0) {
+                showtime = TRUE;
+
             // --verbose  -v
             } else if (strcmp(argv[i], "-v")==0  || strcmp(argv[i], "--verbose")==0) {
                 verbose = VERBOSE_NORMAL;
@@ -4081,6 +4435,8 @@ int main(int argc, char* argv[])
             inputNr = startInput;
             outputNr = startOutput;    
         }
+        
+        showtime |= (verbose >= VERBOSE_DEBUG); // always show processing time in verbose-debug mode
         
         // get filenames
         if (inputFileSequenceCount == 0) { // not yet set via option --input-file-sequence
@@ -4193,8 +4549,9 @@ int main(int argc, char* argv[])
                         if (inputFilenamesResolved[j] != NULL) { // may be null if --insert-blank or --replace-blank
                         
                             success = loadImage(inputFilenamesResolved[j], &page, &inputType);
-                       
-                            sprintf(debugFilename, "_loaded_%i.pgm", inputNr-inputCount+j);
+                            inputTypeName = (char*)FILETYPE_NAMES[inputType];
+                            inputTypeNames[j] = inputTypeName;
+                            sprintf(debugFilename, "_loaded_%i.pnm", inputNr-inputCount+j);
                             saveDebug(debugFilename, &page);
 
                             if (!success) {
@@ -4239,28 +4596,46 @@ int main(int argc, char* argv[])
                             sheet.width = page.width;
                             sheet.height = page.height;
                             sheet.bitdepth = page.bitdepth;
+                            sheet.color = page.color;
                         } else { // generic case: place image onto sheet by copying
                             // allocate sheet-buffer if not done yet
                             if ((sheet.buffer == NULL) && (w != -1) && (h != -1)) {
                                 if ((page.buffer != NULL) && (page.bitdepth != 0)) {
                                     bd = page.bitdepth;
+                                    col = page.color;
                                 } else {
                                     if (outputDepth != -1) { // set via --depth
                                         bd = outputDepth; 
+                                    } else {
+                                        // bd remains default
                                     }
                                 }
-                                initImage(&sheet, w, h, bd);
+                                initImage(&sheet, w, h, bd, col);
+                                
+                            } else if ((page.buffer != NULL) && ((page.bitdepth > sheet.bitdepth) || ( (!sheet.color) && page.color ))) { // make sure current sheet buffer has enough bitdepth and color-mode
+                                sheetBackup = sheet;
+                                // re-allocate sheet
+                                bd = page.bitdepth;
+                                col = page.color;
+                                initImage(&sheet, w, h, bd, col);
+                                // copy old one
+                                copyImage(&sheetBackup, 0, 0, &sheet);
+                                free(sheetBackup.buffer);
                             }
                             if (page.buffer != NULL) {
-                                sprintf(debugFilename, "_page%i.pgm", inputNr-inputCount+j);
-                                saveDebug(debugFilename, &page);
-                                sprintf(debugFilename, "_before_center_page%i.pgm", inputNr-inputCount+j);
-                                saveDebug(debugFilename, &sheet);
+                                if (verbose >= VERBOSE_DEBUG_SAVE) {
+                                    sprintf(debugFilename, "_page%i.pnm", inputNr-inputCount+j);
+                                    saveDebug(debugFilename, &page);
+                                    sprintf(debugFilename, "_before_center_page%i.pnm", inputNr-inputCount+j);
+                                    saveDebug(debugFilename, &sheet);
+                                }
                                 
                                 centerImage(&page, (w * j / inputCount), 0, (w / inputCount), h, &sheet);
                                 
-                                sprintf(debugFilename, "_after_center_page%i.pgm", inputNr-inputCount+j);
-                                saveDebug(debugFilename, &sheet);
+                                if (verbose >= VERBOSE_DEBUG_SAVE) {
+                                    sprintf(debugFilename, "_after_center_page%i.pnm", inputNr-inputCount+j);
+                                    saveDebug(debugFilename, &sheet);
+                                }
                                 free(page.buffer);
                             }
                         }
@@ -4277,14 +4652,15 @@ int main(int argc, char* argv[])
                     w = previousWidth;
                     h = previousHeight;
                     bd = previousBitdepth;
-                    if (verbose >= VERBOSE_MORE) {
+                    col = previousColor;
+                    if (verbose >= VERBOSE_NORMAL) {
                         printf("need to guess sheet size from previous sheet: %ix%i\n", w, h);
                     }
                     if ((w == -1) || (h == -1)) {
                         printf("*** error: sheet size unknown, use at least one input file per sheet, or force using --sheet-size.\n");
                         return 2;
                     } else {
-                        initImage(&sheet, w, h, bd);
+                        initImage(&sheet, w, h, bd, col);
                     }
                 }
 
@@ -4293,11 +4669,19 @@ int main(int argc, char* argv[])
                     previousWidth = w;
                     previousHeight = h;
                     previousBitdepth = bd;
+                    previousColor = col;
                     // handle file types
-                    inputTypeName = (char*)FILETYPE_NAMES[inputType];
-                    if (outputTypeName == NULL) { // set output type to be as input type, if not explicitly set by user
-                        outputType = inputType;
-                        outputTypeName = inputTypeName;
+                    if (outputTypeName == NULL) { // auto-set output type according to sheet format, if not explicitly set by user
+                        if (sheet.color) {
+                            outputType = PPM;
+                        } else {
+                            if (sheet.bitdepth == 1) {
+                                outputType = PBM;
+                            } else {
+                                outputType = PGM;
+                            }
+                        }
+                        outputTypeName = (char*)FILETYPE_NAMES[outputType];
                     } else { // parse user-setting
                         outputType = -1;
                         for (i = 0; (outputType == -1) && (i < FILETYPES_COUNT); i++) {
@@ -4314,7 +4698,7 @@ int main(int argc, char* argv[])
                         outputDepth = sheet.bitdepth;
                     }
 
-                    if (verbose >= VERBOSE_DEBUG) {
+                    if (showtime) {
                         startTime = clock();
                     }
 
@@ -4568,7 +4952,9 @@ int main(int argc, char* argv[])
                             printf("OVERWRITING EXISTING FILES\n");
                         }
                         printf("\n");
-                        printf("input-file%s for sheet %i: %s (type %s)\n", pluralS(inputCount), nr, implode(s1, inputFilenamesResolved, inputCount), inputTypeName);
+                    }
+                    if (verbose >= VERBOSE_NORMAL) {
+                        printf("input-file%s for sheet %i: %s (type%s %s)\n", pluralS(inputCount), nr, implode(s1, inputFilenamesResolved, inputCount), pluralS(inputCount), implode(s2, inputTypeNames, inputCount));
                         printf("output-file%s for sheet %i: %s (type %s)\n", pluralS(outputCount), nr, implode(s1, outputFilenamesResolved, outputCount), outputTypeName);
                         printf("sheet size: %ix%i\n", sheet.width, sheet.height);
                         printf("...\n");
@@ -4591,9 +4977,9 @@ int main(int argc, char* argv[])
                         } else {
                             h = sheet.height;
                         }
-                        saveDebug("./_before-stretch.pgm", &sheet);
+                        saveDebug("./_before-stretch.pnm", &sheet);
                         stretch(w, h, &sheet);
-                        saveDebug("./_after-stretch.pgm", &sheet);
+                        saveDebug("./_after-stretch.pnm", &sheet);
                     } 
                     
                     // zoom
@@ -4615,9 +5001,9 @@ int main(int argc, char* argv[])
                         } else {
                             h = sheet.height;
                         }
-                        saveDebug("./_before-resize.pgm", &sheet);
+                        saveDebug("./_before-resize.pnm", &sheet);
                         resize(w, h, &sheet);
-                        saveDebug("./_after-resize.pgm", &sheet);
+                        saveDebug("./_after-resize.pnm", &sheet);
                     } 
                     
                     
@@ -4715,21 +5101,21 @@ int main(int argc, char* argv[])
                     
                     // pre-wipe
                     if (!isExcluded(nr, noWipeMultiIndex, noWipeMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyWipes(preWipe, preWipeCount, WHITE, &sheet);
+                        applyWipes(preWipe, preWipeCount, maskColor, &sheet);
                     }
 
                     // pre-border
                     if (!isExcluded(nr, noBorderMultiIndex, noBorderMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyBorder(preBorder, WHITE, &sheet);
+                        applyBorder(preBorder, maskColor, &sheet);
                     }
 
                     // black area filter
                     if (!isExcluded(nr, noBlackfilterMultiIndex, noBlackfilterMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        saveDebug("./_before-blackfilter.pgm", &sheet);
+                        saveDebug("./_before-blackfilter.pnm", &sheet);
                         blackfilter(blackfilterScanDirections, blackfilterScanSize, blackfilterScanDepth, blackfilterScanStep, blackfilterScanThreshold, blackfilterExclude, blackfilterExcludeCount, blackfilterIntensity, blackThreshold, &sheet);
-                        saveDebug("./_after-blackfilter.pgm", &sheet);
+                        saveDebug("./_after-blackfilter.pnm", &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ blackfilter DISABLED for sheet %i\n", nr);
                         }
                     }
@@ -4739,14 +5125,14 @@ int main(int argc, char* argv[])
                         if (verbose >= VERBOSE_NORMAL) {
                             printf("noise-filter ...");
                         }
-                        saveDebug("./_before-noisefilter.pgm", &sheet);
+                        saveDebug("./_before-noisefilter.pnm", &sheet);
                         filterResult = noisefilter(noisefilterIntensity, whiteThreshold, &sheet);
-                        saveDebug("./_after-noisefilter.pgm", &sheet);
+                        saveDebug("./_after-noisefilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
                             printf(" deleted %i clusters.\n", filterResult);
                         }
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ noisefilter DISABLED for sheet %i\n", nr);
                         }
                     }
@@ -4756,14 +5142,14 @@ int main(int argc, char* argv[])
                         if (verbose >= VERBOSE_NORMAL) {
                             printf("blur-filter...");
                         }
-                        saveDebug("./_before-blurfilter.pgm", &sheet);
+                        saveDebug("./_before-blurfilter.pnm", &sheet);
                         filterResult = blurfilter(blurfilterScanSize, blurfilterScanStep, blurfilterIntensity, whiteThreshold, &sheet);
-                        saveDebug("./_after-blurfilter.pgm", &sheet);
+                        saveDebug("./_after-blurfilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
                             printf(" deleted %i pixels.\n", filterResult);
                         }
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ blurfilter DISABLED for sheet %i\n", nr);
                         }
                     }
@@ -4772,16 +5158,16 @@ int main(int argc, char* argv[])
                     if (!isExcluded(nr, noMaskScanMultiIndex, noMaskScanMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
                         maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ mask-scan DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // permamently apply masks
                     if (maskCount > 0) {
-                        saveDebug("./_before-masking.pgm", &sheet);
+                        saveDebug("./_before-masking.pnm", &sheet);
                         applyMasks(mask, maskCount, maskColor, &sheet);
-                        saveDebug("./_after-masking.pgm", &sheet);
+                        saveDebug("./_after-masking.pnm", &sheet);
                     }
 
                     // gray filter
@@ -4789,28 +5175,28 @@ int main(int argc, char* argv[])
                         if (verbose >= VERBOSE_NORMAL) {
                             printf("gray-filter...");
                         }
-                        saveDebug("./_before-grayfilter.pgm", &sheet);
+                        saveDebug("./_before-grayfilter.pnm", &sheet);
                         filterResult = grayfilter(grayfilterScanSize, grayfilterScanStep, grayfilterThreshold, blackThreshold, &sheet);
-                        saveDebug("./_after-grayfilter.pgm", &sheet);
+                        saveDebug("./_after-grayfilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
                             printf(" deleted %i pixels.\n", filterResult);
                         }
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ grayfilter DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // rotation-detection
                     if ((!isExcluded(nr, noDeskewMultiIndex, noDeskewMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount))) {
-                        saveDebug("./_before-deskew.pgm", &sheet);
+                        saveDebug("./_before-deskew.pnm", &sheet);
                         originalSheet = sheet; // copy struct entries ('clone')
                         // convert to qpixels
                         if (qpixels==TRUE) {
                             if (verbose>=VERBOSE_NORMAL) {
                                 printf("converting to qpixels.\n");
                             }
-                            initImage(&qpixelSheet, sheet.width * 2, sheet.height * 2, sheet.bitdepth);
+                            initImage(&qpixelSheet, sheet.width * 2, sheet.height * 2, sheet.bitdepth, sheet.color);
                             convertToQPixels(&sheet, &qpixelSheet);
                             sheet = qpixelSheet;
                             q = 2; // qpixel-factor for coordinates in both directions
@@ -4822,7 +5208,7 @@ int main(int argc, char* argv[])
                         if (!isExcluded(nr, noMaskScanMultiIndex, noMaskScanMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
                             maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, &originalSheet);
                         } else {
-                            if (verbose >= VERBOSE_NORMAL) {
+                            if (verbose >= VERBOSE_MORE) {
                                 printf("(mask-scan before deskewing disabled)\n");
                             }
                         }
@@ -4833,16 +5219,16 @@ int main(int argc, char* argv[])
                             // if ( maskValid[i] == TRUE ) { // point may have been invalidated if mask has not been auto-detected
 
                                 // for rotation detection, original buffer is used (not qpixels)
-                                saveDebug("./_before-deskew-detect.pgm", &originalSheet);
+                                saveDebug("./_before-deskew-detect.pnm", &originalSheet);
                                 rotation = - detectRotation(deskewScanEdges, deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, deskewScanDeviation, mask[i][LEFT], mask[i][TOP], mask[i][RIGHT], mask[i][BOTTOM], &originalSheet);
-                                saveDebug("./_after-deskew-detect.pgm", &originalSheet);
+                                saveDebug("./_after-deskew-detect.pnm", &originalSheet);
 
                                 if (rotation != 0.0) {
                                     if (verbose>=VERBOSE_NORMAL) {
                                         printf("rotate (%i,%i): %f\n", point[i][X], point[i][Y], rotation);
                                     }
-                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT])*q, (mask[i][BOTTOM]-mask[i][TOP])*q, sheet.bitdepth);
-                                    initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth);
+                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT])*q, (mask[i][BOTTOM]-mask[i][TOP])*q, sheet.bitdepth, sheet.color);
+                                    initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth, sheet.color);
 
                                     // copy area to rotate into rSource
                                     copyImageArea(mask[i][LEFT]*q, mask[i][TOP]*q, rect.width, rect.height, &sheet, 0, 0, &rect);
@@ -4908,9 +5294,9 @@ int main(int argc, char* argv[])
                             free(qpixelSheet.buffer);
                             sheet = originalSheet;
                         }
-                        saveDebug("./_after-deskew.pgm", &sheet);
+                        saveDebug("./_after-deskew.pnm", &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ deskewing DISABLED for sheet %i\n", nr);
                         }
                     }
@@ -4921,74 +5307,74 @@ int main(int argc, char* argv[])
                         if (!isExcluded(nr, noMaskScanMultiIndex, noMaskScanMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
                             maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, &sheet);
                         } else {
-                            if (verbose >= VERBOSE_NORMAL) {
+                            if (verbose >= VERBOSE_MORE) {
                                 printf("(mask-scan before centering disabled)\n");
                             }
                         }
 
-                        saveDebug("./_before-centering.pgm", &sheet);
+                        saveDebug("./_before-centering.pnm", &sheet);
                         // center masks on the sheet, according to their page position
                         for (i = 0; i < maskCount; i++) {
                             centerMask(point[i][X], point[i][Y], mask[i][LEFT], mask[i][TOP], mask[i][RIGHT], mask[i][BOTTOM], &sheet);
                         }
-                        saveDebug("./_after-centering.pgm", &sheet);
+                        saveDebug("./_after-centering.pnm", &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ auto-centering DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // explicit wipe
                     if (!isExcluded(nr, noWipeMultiIndex, noWipeMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyWipes(wipe, wipeCount, WHITE, &sheet);
+                        applyWipes(wipe, wipeCount, maskColor, &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ wipe DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // explicit border
                     if (!isExcluded(nr, noBorderMultiIndex, noBorderMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyBorder(border, WHITE, &sheet);
+                        applyBorder(border, maskColor, &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ border DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // border-detection
                     if (!isExcluded(nr, noBorderScanMultiIndex, noBorderScanMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        saveDebug("./_before-border.pgm", &sheet);
+                        saveDebug("./_before-border.pnm", &sheet);
                         for (i = 0; i < outsideBorderscanMaskCount; i++) {
                             detectBorder(autoborder[i], borderScanDirections, borderScanSize, borderScanStep, borderScanThreshold, blackThreshold, outsideBorderscanMask[i], &sheet);
                             borderToMask(autoborder[i], autoborderMask[i], &sheet);
                         }
-                        applyMasks(autoborderMask, outsideBorderscanMaskCount, WHITE, &sheet);
+                        applyMasks(autoborderMask, outsideBorderscanMaskCount, maskColor, &sheet);
                         for (i = 0; i < outsideBorderscanMaskCount; i++) {
                             // border-centering
                             if (!isExcluded(nr, noBorderAlignMultiIndex, noBorderAlignMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
                                 alignMask(autoborderMask[i], outsideBorderscanMask[i], borderAlign, borderAlignMargin, &sheet);
                             } else {
-                                if (verbose >= VERBOSE_NORMAL) {
+                                if (verbose >= VERBOSE_MORE) {
                                     printf("+ border-centering DISABLED for sheet %i\n", nr);
                                 }
                             }
                         }
-                        saveDebug("./_after-border.pgm", &sheet);
+                        saveDebug("./_after-border.pnm", &sheet);
                     } else {
-                        if (verbose >= VERBOSE_NORMAL) {
+                        if (verbose >= VERBOSE_MORE) {
                             printf("+ border-scan DISABLED for sheet %i\n", nr);
                         }
                     }
 
                     // post-wipe
                     if (!isExcluded(nr, noWipeMultiIndex, noWipeMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyWipes(postWipe, postWipeCount, WHITE, &sheet);
+                        applyWipes(postWipe, postWipeCount, maskColor, &sheet);
                     }
 
                     // post-border
                     if (!isExcluded(nr, noBorderMultiIndex, noBorderMultiIndexCount, ignoreMultiIndex, ignoreMultiIndexCount)) {
-                        applyBorder(postBorder, WHITE, &sheet);
+                        applyBorder(postBorder, maskColor, &sheet);
                     }
 
                     // post-mirroring
@@ -5049,7 +5435,7 @@ int main(int argc, char* argv[])
                         resize(w, h, &sheet);
                     } 
                     
-                    if (verbose >= VERBOSE_DEBUG) {
+                    if (showtime) {
                         endTime = clock();
                     }
 
@@ -5062,11 +5448,12 @@ int main(int argc, char* argv[])
                             printf("writing output.\n");
                         }
                         // write files
-                        saveDebug("./_before-save.pgm", &sheet);
+                        saveDebug("./_before-save.pnm", &sheet);
                         success = TRUE;
                         page.width = sheet.width / outputCount;
                         page.height = sheet.height;
                         page.bitdepth = sheet.bitdepth;
+                        page.color = sheet.color;
                         for ( j = 0; success && (j < outputCount); j++) {
                             // get pagebuffer
                             if ( outputCount == 1 ) {
@@ -5091,7 +5478,7 @@ int main(int argc, char* argv[])
                     free(sheet.buffer);
                     sheet.buffer = NULL;
 
-                    if (verbose >= VERBOSE_DEBUG) {
+                    if (showtime) {
                         if (startTime > endTime) { // clock overflow
                             endTime -= startTime; // "re-underflow" value again
                             startTime = 0;
@@ -5111,7 +5498,7 @@ int main(int argc, char* argv[])
             printf("deallocated buffer for caching trigonometric calculations.\n");
         }
     }
-    if ((verbose >= VERBOSE_DEBUG) && (totalCount > 1)) {
+    if (showtime && (totalCount > 1)) {
        printf("- total processing time of all %i sheets:  %f s  (average:  %f s)\n", totalCount, (float)totalTime/CLOCKS_PER_SEC, (float)totalTime/totalCount/CLOCKS_PER_SEC);
     }
     return exitCode;

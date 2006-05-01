@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-unpaper - written by Jens Gulden 2005                                       */
+unpaper - written by Jens Gulden 2005, 2006                                 */
 
 const char* VERSION = "0.2";
 
@@ -30,7 +30,13 @@ const char* README =
 "and tiff2pdf.";
 
 const char* COMPILE = 
-"gcc -D TIMESTAMP=\"<yyyy-MM-dd HH:mm:ss>\" -lm -O3 -funroll-all-loops -o unpaper unpaper.c\n";
+"gcc -D TIMESTAMP=\"<yyyy-MM-dd HH:mm:ss>\" -lm -O3 -funroll-all-loops -fomit-frame-pointer -ftree-vectorize -o unpaper unpaper.c\n";
+
+// Note: The algorithms used by this software are ad-hoc approaches that
+// merely perform quantitative analyzes of pixel data without being based on
+// any sophisticated image processing theory. Parts of the code might
+// thus still be highly optimizable. Suggestions are welcome.
+
 /* ------------------------------------------------------------------------ */
 
 #include <stdlib.h>
@@ -46,7 +52,7 @@ const char* BUILD = NULL;
 #endif
 
 const char* WELCOME = 
-"unpaper %s - written by Jens Gulden 2005.\n"
+"unpaper %s - written by Jens Gulden 2005, 2006.\n"
 "Licensed under the GNU General Public License, this comes with no warranty.\n";
               
 const char* USAGE = 
@@ -57,16 +63,20 @@ const char* USAGE =
 
 const char* OPTIONS = 
 "-l --layout single                   Set default layout options for a sheet:\n"
-"            |double                  'single': One page per sheet, oriented\n"
-"            |double-rotated                    vertically without rotation.\n"
-"                                     'double': Two pages per sheet, 'landscape'.\n"
+"            |single-rotated          'single': One page per sheet, oriented\n"
+"            |double                      upwards without rotation.\n"
+"            |double-rotated          'single-rotated': One page per sheet,\n"
+"                                         rotated anti-clockwise.\n"
+"                                     'double': Two pages per sheet, landscape\n"
+"                                         orientation (one page on the left\n"
+"                                         half, one page on the right half).\n"
 "                                     'double-rotated': Two pages per sheet,\n"
-"                                           rotated anti-clockwise (i.e. the\n"
-"                                           top-sides of the pages are heading\n"
-"                                           leftwards on the unrotated sheet).\n"
+"                                         rotated anti-clockwise (i.e. the\n"
+"                                         top-sides of the pages are heading\n"
+"                                         leftwards on the unrotated sheet).\n"
 "                                     Using this option automatically adjusts the\n"
-"                                     --mask-point and maybe --pre/post-rotation\n"
-"                                     options.\n\n"
+"                                     --mask-scan-point and maybe --pre/post-\n"
+"                                     rotation options.\n\n"
 
 "-start --start-sheet <sheet>         Number of first sheet to process in multi-\n"
 "                                     sheet mode. (default: 1)\n\n"
@@ -130,7 +140,7 @@ const char* OPTIONS =
 "-s --size <width>,<height>           Change the sheet size before other pro-\n"
 "          | <size-name>              cessing is applied. Content on the sheet\n"
 "                                     gets zoomed to fit to the appropriate\n"
-"                                     size, but the aspect ratio is not changed\n"
+"                                     size, but the aspect ratio is preserved.\n"
 "                                     Instead, if the sheets\'s aspect ratio\n"
 "                                     changes, the zoomed content gets centered\n"
 "                                     on the sheet. Size-name can also be a\n"
@@ -289,12 +299,12 @@ const char* OPTIONS =
 "                                     individually detected values at each edge\n"
 "                                     will be used, unless they do not exceed\n"
 "                                     the value of --deskew-scan-deviation. Use\n"
-"                                     'l' for scanning from the left edge,\n"
-"                                     't' for scanning from the top edge,\n"
-"                                     'r' for scanning from the right edge, or\n"
-"                                     'b' for scanning from the bottom edge.\n"
-"                                     Multiple flags can be seperated by commas.\n"
-"                                     (default: 'l,r')\n\n"
+"                                     'left' for scanning from the left edge,\n"
+"                                     'top' for scanning from the top edge,\n"
+"                                     'right' for scanning from the right edge,\n"
+"                                     'bottom' for scanning from the bottom.\n"
+"                                     Multiple directions can be seperated by\n"
+"                                     commas. (default: 'left,right')\n\n"
 
 "-ds --deskew-scan-size <pixels>      Size of virtual line for rotation\n"
 "                                     detection. (default: 1500)\n\n"
@@ -465,11 +475,6 @@ const char* OPTIONS =
 "                                     indicating the start of a placeholder for\n"
 "                                     the page counter).\n\n"
 
-"--cache                              Enable cache for intermediate results of\n"
-"                                     trigonometric calculations when\n"
-"                                     deskewing. This speeds up processing a\n"
-"                                     bit, but may use lots of memory.\n\n"
-
 "--dpi <dpi>                          Dots per inch used for conversion of\n"
 "                                     measured size values, like e.g.'21cm,\n"
 "                                     27.9cm'. Note that this parameter should\n"
@@ -520,8 +525,7 @@ const char* OPTIONS =
 "--replace-blank <nr>{,<nr>[-<nr>]}   Like --insert-blank, but the input images\n"
 "                                     at the specified index positions get\n"
 "                                     replaced with blank content and thus will\n"
-"                                     actually be removed from the input file\n"
-"                                     sequence.\n\n"
+"                                     be ignored.\n\n"
 
 "--overwrite                          Allow overwriting existing files.\n"
 "                                     Otherwise the program terminates with an\n"
@@ -557,7 +561,10 @@ const char* HELP =
 #define max(a, b) ( (a >= b) ? (a) : (b) )
 #define pluralS(i) ( (i > 1) ? "s" : "" )
 #define pixelValue(r, g, b) ( (r)<<16 | (g)<<8 | (b) )
-#define pixelBrightness(r, g, b) ( ( (r)+(g)+(b) ) / 3 )
+#define pixelGrayscaleValue(g) ( (g)<<16 | (g)<<8 | (g) )
+#define pixelGrayscale(r, g, b) ( ( ( r == g ) && ( r == b ) ) ? r : ( ( r + g + b ) / 3 ) ) // average (optimized for already gray values)
+#define pixelLightness(r, g, b) ( r < g ? ( r < b ? r : b ) : ( g < b ? g : b ) ) // minimum
+#define pixelDarknessInverse(r, g, b) ( r > g ? ( r > b ? r : b ) : ( g > b ? g : b ) ) // maximum
 #define red(pixel) ( (pixel >> 16) & 0xff )
 #define green(pixel) ( (pixel >> 8) & 0xff )
 #define blue(pixel) ( pixel & 0xff )
@@ -651,6 +658,9 @@ typedef enum {
 
 struct IMAGE {
     unsigned char* buffer;
+    unsigned char* bufferGrayscale;
+    unsigned char* bufferLightness;
+    unsigned char* bufferDarknessInverse;
     int width;
     int height;
     int bitdepth;
@@ -1125,14 +1135,48 @@ void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN
     
     size = width * height;
     if ( color ) {
+        image->bufferGrayscale = (unsigned char*)malloc(size);
+        image->bufferLightness = (unsigned char*)malloc(size);
+        image->bufferDarknessInverse = (unsigned char*)malloc(size);
+        memset(image->bufferGrayscale, WHITE, size);
+        memset(image->bufferLightness, WHITE, size);
+        memset(image->bufferDarknessInverse, WHITE, size);
         size *= 3;
     }
     image->buffer = (unsigned char*)malloc(size);
     memset(image->buffer, WHITE, size);
+    if ( ! color ) {
+        image->bufferGrayscale = image->buffer;
+        image->bufferLightness = image->buffer;
+        image->bufferDarknessInverse = image->buffer;
+    }
     image->width = width;
     image->height = height;
     image->bitdepth = bitdepth;
     image->color = color;
+}
+
+
+/**
+ * Frees an image.
+ */
+void freeImage(struct IMAGE* image) {    
+    free(image->buffer);
+    if (image->color) {
+        free(image->bufferGrayscale);
+        free(image->bufferLightness);
+        free(image->bufferDarknessInverse);
+    }
+}
+
+
+/**
+ * Replaces one image with another.
+ */
+void replaceImage(struct IMAGE* image, struct IMAGE* newimage) {    
+    freeImage(image);
+    // pass-back new image
+    *image = *newimage; // copy whole struct
 }
 
 
@@ -1162,7 +1206,7 @@ BOOLEAN setPixel(int pixel, int x, int y, struct IMAGE* image) {
             if ((r == g) && (r == b)) { // optimization (avoid division by 3)
                 pixel = r;
             } else {
-                pixel = pixelBrightness(r, g, b); // convert to gray (will already be in most cases, but we can't be sure)
+                pixel = pixelGrayscale(r, g, b); // convert to gray (will already be in most cases, but we can't be sure)
             }
             if (*p != (unsigned char)pixel) {
                 *p = (unsigned char)pixel;
@@ -1171,9 +1215,8 @@ BOOLEAN setPixel(int pixel, int x, int y, struct IMAGE* image) {
                 return FALSE;
             }
         } else { // color
-            pos *= 3;
             result = FALSE;
-            p = &image->buffer[pos];
+            p = &image->buffer[pos*3];
             if (*p != r) {
                 *p = r;
                 result = TRUE;
@@ -1188,53 +1231,10 @@ BOOLEAN setPixel(int pixel, int x, int y, struct IMAGE* image) {
                 *p = b;
                 result = TRUE;
             }
-            return result;
-        }
-    }
-}
-
-
-/**
- * Sets the color/grayscale value of a single pixel.
- *
- * @return TRUE if the pixel has been changed, FALSE if the original color was the one to set
- */ 
-BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
-    unsigned char* p;
-    int w, h;
-    int pos;
-    BOOLEAN result;
-    
-    w = image->width;
-    h = image->height;
-    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
-        return FALSE; //nop
-    } else {
-        pos = (y * w) + x;
-        if ( ! image->color ) {
-            p = &image->buffer[pos];
-            if (*p != WHITE) {
-                *p = WHITE;
-                return TRUE;
-            } else {
-                return FALSE;
-            }
-        } else { // color
-            p = &image->buffer[pos * 3];
-            result = FALSE;
-            if (*p != WHITE) {
-                *p = WHITE;
-                result = TRUE;
-            }
-            p++;
-            if (*p != WHITE) {
-                *p = WHITE;
-                result = TRUE;
-            }
-            p++;
-            if (*p != WHITE) {
-                *p = WHITE;
-                result = TRUE;
+            if ( result ) { // modified: update cached grayscale, lightness and brightnessInverse values
+                image->bufferGrayscale[pos] = pixelGrayscale(r, g, b);
+                image->bufferLightness[pos] = pixelLightness(r, g, b);
+                image->bufferDarknessInverse[pos] = pixelDarknessInverse(r, g, b);
             }
             return result;
         }
@@ -1314,12 +1314,7 @@ int getPixelGrayscale(int x, int y, struct IMAGE* image) {
         return WHITE;
     } else {
         pos = (y * w) + x;
-        if ( ! image->color ) {
-            return image->buffer[pos];
-        } else { // color
-            pos *= 3;
-            return pixelBrightness((unsigned char)image->buffer[pos++], (unsigned char)image->buffer[pos++], (unsigned char)image->buffer[pos]);
-        }
+        return image->bufferGrayscale[pos];
     }
 }
 
@@ -1338,7 +1333,6 @@ int getPixelGrayscale(int x, int y, struct IMAGE* image) {
 int getPixelLightness(int x, int y, struct IMAGE* image) {
     int w, h;
     int pos;
-    unsigned char r, g, b;
 
     w = image->width;
     h = image->height;
@@ -1346,26 +1340,7 @@ int getPixelLightness(int x, int y, struct IMAGE* image) {
         return WHITE;
     } else {
         pos = (y * w) + x;
-        if ( ! image->color ) {
-            return image->buffer[pos];
-        } else { // color
-            pos *= 3;
-            r = (unsigned char)image->buffer[pos++];
-            g = (unsigned char)image->buffer[pos++];
-            b = (unsigned char)image->buffer[pos];
-            // minimum of all 3:
-            if (r < b) {
-                if (r < g) {
-                    return r;
-                } else { // g <= r && r < b
-                    return g;
-                }
-            } else if (g < b) {
-                return g;
-            } else {
-                return b;
-            }
-        }
+        return image->bufferLightness[pos];
     }
 }
 
@@ -1384,7 +1359,6 @@ int getPixelLightness(int x, int y, struct IMAGE* image) {
 int getPixelDarknessInverse(int x, int y, struct IMAGE* image) {
     int w, h;
     int pos;
-    unsigned char r, g, b;
 
     w = image->width;
     h = image->height;
@@ -1392,25 +1366,54 @@ int getPixelDarknessInverse(int x, int y, struct IMAGE* image) {
         return WHITE;
     } else {
         pos = (y * w) + x;
+        return image->bufferDarknessInverse[pos];
+    }
+}
+
+
+/**
+ * Sets the color/grayscale value of a single pixel.
+ *
+ * @return TRUE if the pixel has been changed, FALSE if the original color was the one to set
+ */ 
+BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
+    unsigned char* p;
+    int w, h;
+    int pos;
+    BOOLEAN result;
+    
+    w = image->width;
+    h = image->height;
+    if ( (x < 0) || (x >= w) || (y < 0) || (y >= h) ) {
+        return FALSE; //nop
+    } else {
+        pos = (y * w) + x;
         if ( ! image->color ) {
-            return image->buffer[pos];
-        } else { // color
-            pos *= 3;
-            r = (unsigned char)image->buffer[pos++];
-            g = (unsigned char)image->buffer[pos++];
-            b = (unsigned char)image->buffer[pos];
-            // maximum of all 3:
-            if (r > b) {
-                if (r > g) {
-                    return r;
-                } else { // g >= r && r > b
-                    return g;
-                }
-            } else if (g > b) {
-                return g;
+            p = &image->buffer[pos];
+            if (*p != WHITE) {
+                *p = WHITE;
+                return TRUE;
             } else {
-                return b;
+                return FALSE;
             }
+        } else { // color
+            p = &image->buffer[pos * 3];
+            result = FALSE;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            p++;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            p++;
+            if (*p != WHITE) {
+                *p = WHITE;
+                result = TRUE;
+            }
+            return result;
         }
     }
 }
@@ -1850,11 +1853,15 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
     int lineOffsetOutput;
     int x;
     int y;
-    int b;
+    int bb;
     int off;
     int bits;
     int bit;
     int pixel;
+    int size;
+    int pos;
+    unsigned char* p;
+    unsigned char r, g, b;
 
     if (verbose>=VERBOSE_MORE) {
         printf("loading file %s.\n", filename);
@@ -1945,10 +1952,10 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
         lineOffsetOutput = 0;
         for (y = 0; y < image->height; y++) {
             for (x = 0; x < image->width; x++) {
-                b = x >> 3;  // x / 8;
+                bb = x >> 3;  // x / 8;
                 off = x & 7; // x % 8;
                 bit = 128>>off;
-                bits = image->buffer[lineOffsetInput+b];
+                bits = image->buffer[lineOffsetInput + bb];
                 bits &= bit;
                 if (bits == 0) { // 0: white pixel
                     pixel = 0xff;
@@ -1964,6 +1971,31 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
         image->buffer = buffer2;
     }
     fclose(f);
+
+    if (*type == PPM) {
+        // init cached values for grayscale, lightness and darknessInverse
+        size = image->width * image->height;
+        image->bufferGrayscale = (unsigned char*)malloc(size);
+        image->bufferLightness = (unsigned char*)malloc(size);
+        image->bufferDarknessInverse = (unsigned char*)malloc(size);
+        p = image->buffer;
+        for (pos = 0; pos < size; pos++) {
+            r = *p;
+            p++;
+            g = *p;
+            p++;
+            b = *p;
+            p++;            
+            image->bufferGrayscale[pos] = pixelGrayscale(r, g, b);
+            image->bufferLightness[pos] = pixelLightness(r, g, b);
+            image->bufferDarknessInverse[pos] = pixelDarknessInverse(r, g, b);
+        }
+    } else {
+        image->bufferGrayscale = image->buffer;
+        image->bufferLightness = image->buffer;
+        image->bufferDarknessInverse = image->buffer;
+    }
+    
     return TRUE;
 }
 
@@ -2069,7 +2101,6 @@ BOOLEAN saveImage(char* filename, struct IMAGE* image, int type, BOOLEAN overwri
                 fprintf(outputFile, "255\n"); // maximum color index per color-component
             }
             fwrite(buf, 1, outputSize, outputFile);
-            //fprintf(outputFile, "%c", 0); // zero-termination byte
             fclose(outputFile);
         } else {
             printf("*** error: Cannot open output file '%s'.\n", filename);
@@ -2283,7 +2314,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     }
     if ((deskewScanEdges & 1<<TOP) != 0) {
         // top
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, 1, left, top, right, bottom, image);
+        rotation[count] = - detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, 1, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation top: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
@@ -2299,7 +2330,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     }
     if ((deskewScanEdges & 1<<BOTTOM) != 0) {
         // bottom
-        rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, -1, left, top, right, bottom, image);
+        rotation[count] = - detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, -1, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
             printf("detected rotation bottom: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
         }
@@ -2335,8 +2366,8 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
  * Usually, the buffer should have been converted to a qpixels-representation before, to increase quality.
  * (To rotate parts of an image, extract the part with copyBuffer, rotate, and re-paste with copyBuffer.)
  */
-void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* trigonometryCache, int trigonometryCacheBaseSize) {
-    // (trigonometryCacheBaseSize is length of one base-side of the 3-dim. cache, NOT size in bytes or entries)
+//void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* trigonometryCache, int trigonometryCacheBaseSize) {
+void rotate(double radians, struct IMAGE* source, struct IMAGE* target) {
     int x;
     int y;
     int midX;
@@ -2346,17 +2377,17 @@ void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* 
     int halfY;
     int dX;
     int dY;
-    double hyp;
-    double alpha;
-    double alphaNew;
+    float m11;
+    float m12;
+    float m21;
+    float m22;
     int diffX;
     int diffY;
     int oldX;
     int oldY;
     int pixel;
-    double sinval;
-    double cosval;
-    int cacheIndex;
+    float sinval;
+    float cosval;
     int w, h;
     
     w = source->width;
@@ -2366,61 +2397,25 @@ void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* 
     midX = w/2;
     midY = h/2;    
     midMax = max(midX, midY);
-    
+
+    // create 2D rotation matrix
+    sinval = sin(radians); // no use of sincos()-function for compatibility, no performace bottleneck anymore anyway
+    cosval = cos(radians);
+    m11 = cosval;
+    m12 = sinval;
+    m21 = -sinval;
+    m22 = cosval;
+
     // step through all pixels of the target image, 
     // symmetrically in all four quadrants to reduce trigonometric calculations
 
     for (dY = 0; dY <= midMax; dY++) {
 
         for (dX = 0; dX <= midMax; dX++) {
-
-            // get length of hypothenuse and angle, maybe cached
-            if (trigonometryCacheBaseSize > 0) { // use caching
-                cacheIndex = (trigonometryCacheBaseSize * dY + dX) * 2;
-                hyp = trigonometryCache[cacheIndex];
-                if ( isnan( hyp ) ) { // not yet in cache
-                    // hypothenuse
-                    hyp = sqrt( dX*dX + dY*dY );
-                    // angle
-                    if (dX != 0) {
-                        alpha = atan( (double)dY / dX ); // returns angle to middle point, 0..90 degrees
-                    } else { // avoid division by 0
-                        alpha = M_PI/2;
-                    }
-                    // remember in cache
-                    trigonometryCache[cacheIndex] = hyp;
-                    trigonometryCache[cacheIndex + 1] = alpha;
-                } else {
-                    alpha = trigonometryCache[cacheIndex + 1];
-                }
-            } else { // not cached
-                // hypothenuse
-                hyp = sqrt( dX*dX + dY*dY );
-                // angle
-                if (dX != 0) {
-                    alpha = atan( (double)dY / dX ); // returns angle to middle point, 0..90 degrees
-                } else { // avoid division by 0
-                    alpha = M_PI/2;
-                }
-            }
-
-            alphaNew = alpha + radians;
-            
-#ifndef NOSINCOS
-            // GNU compatible compilers:
-            sincos(alphaNew, &sinval, &cosval); 
-            // (On gcc 3.3 (Linux) the above line causes a compiler warning about
-            // 'implicit declaration of function sincos', although sincos 
-            // should be declared via math.h. No idea why, but it works.)
-#else            
-            // Non-GNU compilers (e.g. "cc" on MacOSX) may not provide
-            // function sincos(), so use the slightly slower variant instead:
-            sinval = sin(alphaNew);
-            cosval = cos(alphaNew);
-#endif            
-            
-            diffX = (int)(hyp * cosval);
-            diffY = (int)(hyp * sinval);
+        
+            // matrix multiplication to get rotated pixel pos (as in quadrant I)
+            diffX = dX * m11 + dY * m21;
+            diffY = dX * m12 + dY * m22;
 
             // quadrant I
             x = midX + dX;
@@ -2463,31 +2458,6 @@ void rotate(double radians, struct IMAGE* source, struct IMAGE* target, double* 
             }
         }
     }
-    
-    /* old, more naive version:
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            // find rotated point in original image
-            dX = x - midX;
-            dY = y - midY;
-            hyp = sqrt(dX*dX + dY*dY);
-            if (y!=midY) {
-                alpha = atan((double)dX/-dY);
-            } else { // dY==0, avoid division by 0
-                alpha = M_PI/2;
-            }
-            if (dY > 0) { // adopt angle to quadrant (atan() can only return -90..90)
-                alpha -= M_PI;
-            }
-            alphaNew = alpha -radians;
-            sincos(alphaNew, &sinval, &cosval);
-            origX = midX + (int)(hyp * sinval);
-            origY = midY - (int)(hyp * cosval);
-            // set point value
-            pixel = getPixel(origX, origY, source);
-            setPixel(pixel, x, y, target);
-        }
-    }*/
 }
 
 
@@ -2593,7 +2563,7 @@ void stretch(int w, int h, struct IMAGE* image) {
         printf("stretching %ix%i -> %ix%i\n", image->width, image->height, w, h);
     }
 
-    // allocte new buffer's memory
+    // allocate new buffer's memory
     initImage(&newimage, w, h, image->bitdepth, image->color);
     
     blockWidth = image->width / w; // (0 if enlarging, i.e. w > image->width)
@@ -2655,11 +2625,12 @@ void stretch(int w, int h, struct IMAGE* image) {
                     sum = 0;
                     for (yy = 0; yy < matrixHeight; yy++) {
                         for (xx = 0; xx < matrixWidth; xx++) {
-                            sum += getPixel(matrixX + xx, matrixY + yy, image);
+                            sum += getPixelGrayscale(matrixX + xx, matrixY + yy, image);
                             sumCount++;
                         }
                     }
-                    pixel = sum / sumCount;
+                    sum = sum / sumCount;
+                    pixel = pixelGrayscaleValue(sum);
                 } else { // color
                     sumR = 0;
                     sumG = 0;
@@ -2688,15 +2659,8 @@ void stretch(int w, int h, struct IMAGE* image) {
             matrixY += matrixHeight;
         }
     }
-    
-    // free old buffer
-    free(image->buffer);
-    // pass-back new image
-    image->buffer = newimage.buffer;
-    image->width = w;
-    image->height = h;
+    replaceImage(image, &newimage);
 }
-
 
 /**
  * Resizes the image so that the resulting sheet has a new size and the image
@@ -2731,12 +2695,7 @@ void resize(int w, int h, struct IMAGE* image) {
     stretch(ww, hh, image);
     initImage(&newimage, w, h, image->bitdepth, image->color);
     centerImage(image, 0, 0, w, h, &newimage);
-    // free old buffer
-    free(image->buffer);
-    // pass-back new image
-    image->buffer = newimage.buffer;
-    image->width = w;
-    image->height = h;
+    replaceImage(image, &newimage);
 }
 
 
@@ -3015,10 +2974,7 @@ void flipRotate(int direction, struct IMAGE* image) {
             setPixel(pixel, xx, yy, &newimage);
         }
     }
-    free(image->buffer);
-    image->buffer = newimage.buffer;
-    image->width = newimage.width;
-    image->height = newimage.height;
+    replaceImage(image, &newimage);
 }
 
 
@@ -3312,7 +3268,7 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
         copyImageArea(left, top, width, height, image, 0, 0, &newimage);
         clearRect(left, top, right, bottom, image);
         copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
-        free(newimage.buffer);
+        freeImage(&newimage);
     } else {
         if (verbose >= VERBOSE_NORMAL) {
             printf("centering mask [%i,%i,%i,%i] (%i,%i): %i, %i - NO CENTERING (would shift area outside visible image)\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
@@ -3354,7 +3310,7 @@ void alignMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], int direction, i
     copyImageArea(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image, 0, 0, &newimage);
     clearRect(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image);
     copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
-    free(newimage.buffer);
+    freeImage(&newimage);
 }
 
 
@@ -3600,7 +3556,6 @@ int main(int argc, char* argv[]) {
     int excludeMultiIndexCount;
     int ignoreMultiIndex[MAX_MULTI_INDEX];
     int ignoreMultiIndexCount;    
-    BOOLEAN useTrigonometryCache;
     int autoborder[MAX_MASKS][EDGES_COUNT];
     int autoborderMask[MAX_MASKS][EDGES_COUNT];
     int insertBlank[MAX_MULTI_INDEX];
@@ -3608,7 +3563,7 @@ int main(int argc, char* argv[]) {
     int replaceBlank[MAX_MULTI_INDEX];
     int replaceBlankCount;    
     BOOLEAN overwrite;
-    BOOLEAN showtime;
+    BOOLEAN showTime;
     int dpi;
     
     // --- local variables ---
@@ -3667,10 +3622,6 @@ int main(int argc, char* argv[]) {
     clock_t time;
     unsigned long int totalTime;
     int totalCount;
-    double* trigonometryCache;
-    int trigonometryCacheBaseSize;
-    int requiredCacheSize;
-    int cacheSizeBytes;
     BOOLEAN ins;
     BOOLEAN repl;
     int blankCount;
@@ -3679,13 +3630,11 @@ int main(int argc, char* argv[]) {
     sheet.buffer = NULL;
     page.buffer = NULL;
     exitCode = 0; // error code to return
-    trigonometryCacheBaseSize = 0;
     bd = 1; // default bitdepth if not resolvable (i.e. usually empty input, so bd=1 is good choice)
     col = FALSE; // default no color if not resolvable
     
     // explicitly un-initialize variables that are sometimes not used to avoid compiler warnings
     qpixelSheet.buffer = NULL; // used optionally, deactivated by --no-qpixels
-    trigonometryCache = NULL;  // used optionally, activated by --cache
     startTime = 0;             // used optionally in debug mode -vv or with --time
     endTime = 0;               // used optionally in debug mode -vv or with --time
     inputNr = -1;              // will be initialized in first run of main-loop
@@ -3763,7 +3712,7 @@ int main(int argc, char* argv[]) {
         deskewScanEdges = (1<<LEFT) | (1<<RIGHT);
         deskewScanSize = 1500;
         deskewScanDepth = 0.5;
-        deskewScanRange = 2.0;
+        deskewScanRange = 5.0;
         deskewScanStep = 0.1;
         deskewScanDeviation = 1.0;
         borderScanDirections = (1<<VERTICAL);
@@ -3798,11 +3747,10 @@ int main(int argc, char* argv[]) {
         sheetMultiIndexCount = -1; // default: process all between start-sheet and end-sheet
         excludeMultiIndexCount = 0;
         ignoreMultiIndexCount = 0;
-        useTrigonometryCache = FALSE; // not used by default, may use too much memory
         insertBlankCount = 0;
         replaceBlankCount = 0;
         overwrite = FALSE;
-        showtime = FALSE;
+        showTime = FALSE;
         dpi = 300;
 
 
@@ -3869,6 +3817,11 @@ int main(int argc, char* argv[]) {
                 noMaskCenterMultiIndexCount = 0; // enable mask centering
                 if (strcmp(argv[i], "single")==0) {
                     layout = LAYOUT_SINGLE;
+                } else if (strcmp(argv[i], "single-rotated")==0) {
+                    layout = LAYOUT_SINGLE;
+                    // assume two pages are placed left-above-right on the sheet, so pre-rotate
+                    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
+                    postRotate = 90;
                 } else if (strcmp(argv[i], "double")==0) {
                     layout = LAYOUT_DOUBLE;
                 } else if (strcmp(argv[i], "double-rotated")==0) {
@@ -4227,7 +4180,6 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(argv[i], "-dv")==0 || strcmp(argv[i], "--deskew-scan-deviation")==0) {
                 sscanf(argv[++i],"%f", &deskewScanDeviation);
 
-
             // --no-border-scan
             } else if (strcmp(argv[i], "--no-border-scan")==0) {
                 parseMultiIndex(&i, argv, noBorderScanMultiIndex, &noBorderScanMultiIndexCount);
@@ -4253,21 +4205,17 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(argv[i], "-Ba")==0 || strcmp(argv[i], "--border-align")==0) {
                 borderAlign = parseEdges(argv[++i], &exitCode);
 
-
             // --border-margin  -Bm
             } else if (strcmp(argv[i], "-Bm")==0 || strcmp(argv[i], "--border-margin")==0) {
                 parseSize(argv[++i], borderAlignMargin, dpi, &exitCode);
-
 
             // --no-border-align
             } else if (strcmp(argv[i], "--no-border-align")==0) {
                 parseMultiIndex(&i, argv, noBorderAlignMultiIndex, &noBorderAlignMultiIndexCount);
 
-
             // --no-wipe
             } else if (strcmp(argv[i], "--no-wipe")==0) {
                 parseMultiIndex(&i, argv, noWipeMultiIndex, &noWipeMultiIndexCount);
-
 
             // --no-border
             } else if (strcmp(argv[i], "--no-border")==0) {
@@ -4277,9 +4225,11 @@ int main(int argc, char* argv[]) {
             // --white-treshold
             } else if (strcmp(argv[i], "-w")==0 || strcmp(argv[i], "--white-threshold")==0) {
                 sscanf(argv[++i],"%f", &whiteThreshold);
+                
             // --black-treshold
             } else if (strcmp(argv[i], "-b")==0 || strcmp(argv[i], "--black-threshold")==0) {
                 sscanf(argv[++i],"%f", &blackThreshold);
+
 
             // --input-pages
             } else if (strcmp(argv[i], "-ip")==0 || strcmp(argv[i], "--input-pages")==0) {
@@ -4296,6 +4246,7 @@ int main(int argc, char* argv[]) {
                     printf("Cannot set --output-pages value other than 1 or 2, ignoring.\n");
                     outputCount = 1;
                 }
+
 
             // --input-file-sequence
             } else if (strcmp(argv[i], "-if")==0 || strcmp(argv[i], "--input-file-sequence")==0) {
@@ -4333,7 +4284,6 @@ int main(int argc, char* argv[]) {
             } else if (strcmp(argv[i], "--insert-blank")==0) {
                 parseMultiIndex(&i, argv, insertBlank, &insertBlankCount);
 
-
             // --replace-blank
             } else if (strcmp(argv[i], "--replace-blank")==0) {
                 parseMultiIndex(&i, argv, replaceBlank, &replaceBlankCount);
@@ -4350,10 +4300,6 @@ int main(int argc, char* argv[]) {
             // --no-multi-pages
             } else if (strcmp(argv[i], "--no-multi-pages")==0) {
                 multisheets = FALSE;
-
-            // --cache
-            } else if (strcmp(argv[i], "--cache")==0) {
-                useTrigonometryCache = TRUE;
 
             // --dpi
             } else if (strcmp(argv[i], "--dpi")==0) {
@@ -4377,7 +4323,7 @@ int main(int argc, char* argv[]) {
 
             // --time
             } else if (strcmp(argv[i], "--time")==0) {
-                showtime = TRUE;
+                showTime = TRUE;
 
             // --verbose  -v
             } else if (strcmp(argv[i], "-v")==0  || strcmp(argv[i], "--verbose")==0) {
@@ -4436,7 +4382,7 @@ int main(int argc, char* argv[]) {
             outputNr = startOutput;    
         }
         
-        showtime |= (verbose >= VERBOSE_DEBUG); // always show processing time in verbose-debug mode
+        showTime |= (verbose >= VERBOSE_DEBUG); // always show processing time in verbose-debug mode
         
         // get filenames
         if (inputFileSequenceCount == 0) { // not yet set via option --input-file-sequence
@@ -4468,8 +4414,8 @@ int main(int argc, char* argv[]) {
             if ( (!anyWildcards) && (strchr(inputFileSequence[inputFileSequencePos], '%') != 0) ) {
                 anyWildcards = TRUE;
             }
-            ins = isInMultiIndex(inputFileSequencePosTotal, insertBlank, insertBlankCount);
-            repl = isInMultiIndex(inputFileSequencePosTotal, replaceBlank, replaceBlankCount);
+            ins = isInMultiIndex(inputFileSequencePosTotal+1, insertBlank, insertBlankCount);
+            repl = isInMultiIndex(inputFileSequencePosTotal+1, replaceBlank, replaceBlankCount);
             if (!(ins || repl)) {
                 sprintf(inputFilenamesResolvedBuffer[j], inputFileSequence[inputFileSequencePos++], inputNr);
                 inputFilenamesResolved[j] = inputFilenamesResolvedBuffer[j];
@@ -4493,6 +4439,15 @@ int main(int argc, char* argv[]) {
         if (blankCount == inputCount) {
             allInputFilesMissing = FALSE;
         }
+        
+        // multi-(input-)sheets?
+        if ( multisheets && anyWildcards ) { // might already have been disabled by option (multisheets==FALSE)
+            //nop, multisheets remains TRUE
+        } else {
+            multisheets = FALSE;
+            endSheet = startSheet;
+        }
+
         for (j = 0; j < outputCount; j++) {
             if ( (!anyWildcards) && (strchr(outputFileSequence[outputFileSequencePos], '%') != 0) ) {
                 anyWildcards = TRUE;
@@ -4503,14 +4458,6 @@ int main(int argc, char* argv[]) {
                 outputFileSequencePos = 0;
                 outputNr++;
             }
-        }
-
-        // multi-sheets?
-        if ( multisheets && anyWildcards ) { // might already have been disabled by option (multisheets==FALSE)
-            //nop, multisheets remains TRUE
-        } else {
-            multisheets = FALSE;
-            endSheet = startSheet;
         }
 
         // test if (at least one) input file exists
@@ -4593,6 +4540,9 @@ int main(int argc, char* argv[]) {
                         // place image into sheet buffer
                         if ( (inputCount == 1) && (page.buffer != NULL) && (page.width == w) && (page.height == h) ) { // quick case: single input file == whole sheet
                             sheet.buffer = page.buffer;
+                            sheet.bufferGrayscale = page.bufferGrayscale;
+                            sheet.bufferLightness = page.bufferLightness;
+                            sheet.bufferDarknessInverse = page.bufferDarknessInverse;
                             sheet.width = page.width;
                             sheet.height = page.height;
                             sheet.bitdepth = page.bitdepth;
@@ -4620,7 +4570,7 @@ int main(int argc, char* argv[]) {
                                 initImage(&sheet, w, h, bd, col);
                                 // copy old one
                                 copyImage(&sheetBackup, 0, 0, &sheet);
-                                free(sheetBackup.buffer);
+                                freeImage(&sheetBackup);
                             }
                             if (page.buffer != NULL) {
                                 if (verbose >= VERBOSE_DEBUG_SAVE) {
@@ -4636,7 +4586,7 @@ int main(int argc, char* argv[]) {
                                     sprintf(debugFilename, "_after_center_page%i.pnm", inputNr-inputCount+j);
                                     saveDebug(debugFilename, &sheet);
                                 }
-                                free(page.buffer);
+                                freeImage(&page);
                             }
                         }
                         
@@ -4698,7 +4648,7 @@ int main(int argc, char* argv[]) {
                         outputDepth = sheet.bitdepth;
                     }
 
-                    if (showtime) {
+                    if (showTime) {
                         startTime = clock();
                     }
 
@@ -5227,55 +5177,20 @@ int main(int argc, char* argv[]) {
                                     if (verbose>=VERBOSE_NORMAL) {
                                         printf("rotate (%i,%i): %f\n", point[i][X], point[i][Y], rotation);
                                     }
-                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT])*q, (mask[i][BOTTOM]-mask[i][TOP])*q, sheet.bitdepth, sheet.color);
+                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT]+1)*q, (mask[i][BOTTOM]-mask[i][TOP]+1)*q, sheet.bitdepth, sheet.color);
                                     initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth, sheet.color);
 
                                     // copy area to rotate into rSource
                                     copyImageArea(mask[i][LEFT]*q, mask[i][TOP]*q, rect.width, rect.height, &sheet, 0, 0, &rect);
 
-                                    if (useTrigonometryCache) {
-                                        // make sure we have a trigonometryCache big enough to fit the sqr(max(w/2,h/2))*2
-                                        requiredCacheSize = max(sheet.width*q / 2, sheet.height*q / 2);
-                                        if ( trigonometryCacheBaseSize < requiredCacheSize ) { // not yet allocated, or had been allocated for a smaller image
-                                            // free old one, if had already been allocated before (e.g. for a smaller)
-                                            if ( trigonometryCacheBaseSize != 0 ) {
-                                                free(trigonometryCache);
-                                                if (verbose >= VERBOSE_MORE) {
-                                                    printf("deallocated previous buffer for caching trigonometric calculations.\n");
-                                                }
-                                            }
-                                            trigonometryCacheBaseSize = requiredCacheSize;
-                                            cacheSizeBytes = requiredCacheSize * requiredCacheSize * 2 * sizeof(double);
-                                            trigonometryCache = (double*)malloc(cacheSizeBytes);
-                                            if (trigonometryCache != NULL) {
-                                                memset(trigonometryCache, -1, cacheSizeBytes); // fill with NaN
-                                                if (verbose >= VERBOSE_MORE) {
-                                                    printf("allocated %i bytes (%i * %i * 2 * %i) for caching trigonometric calculations.\n", cacheSizeBytes, trigonometryCacheBaseSize, trigonometryCacheBaseSize, sizeof(double));
-                                                }
-                                            } else {
-                                                printf("warning: failed to allocate %i bytes (%i * %i * 2 * %i) for caching trigonometric calculations, disabling cache.\n", cacheSizeBytes, trigonometryCacheBaseSize, trigonometryCacheBaseSize, sizeof(double));
-                                                useTrigonometryCache = FALSE;
-                                                trigonometryCacheBaseSize = 0;
-                                            }
-                                        }
-                                    } else {
-                                        if (verbose >= VERBOSE_MORE) {
-                                            if ( multisheets && (sheetMultiIndexCount != 1) ) { // if it's not a single-sheet job, inform about --cache (otherwise, --cache wouldn't make sense)
-                                                requiredCacheSize = max(sheet.width*q / 2, sheet.height*q / 2); // (copied from above)
-                                                cacheSizeBytes = requiredCacheSize * requiredCacheSize * 2 * sizeof(double); // (copied from above)
-                                                printf("not using a cache for trigonometric calculations, would use %i bytes (enable with --cache).\n", cacheSizeBytes);
-                                            }
-                                        }
-                                    }
-
                                     // rotate
-                                    rotate(degreesToRadians(rotation), &rect, &rectTarget, trigonometryCache, trigonometryCacheBaseSize);
+                                    rotate(degreesToRadians(rotation), &rect, &rectTarget);
 
                                     // copy result back into whole image
                                     copyImageArea(0, 0, rectTarget.width, rectTarget.height, &rectTarget, mask[i][LEFT]*q, mask[i][TOP]*q, &sheet);
 
-                                    free(rect.buffer);
-                                    free(rectTarget.buffer);
+                                    freeImage(&rect);
+                                    freeImage(&rectTarget);
                                 } else {
                                     if (verbose >= VERBOSE_NORMAL) {
                                         printf("rotate (%i,%i): -\n", point[i][X], point[i][Y]);
@@ -5291,7 +5206,7 @@ int main(int argc, char* argv[]) {
                                 printf("converting back from qpixels.\n");
                             }
                             convertFromQPixels(&qpixelSheet, &originalSheet);
-                            free(qpixelSheet.buffer);
+                            freeImage(&qpixelSheet);
                             sheet = originalSheet;
                         }
                         saveDebug("./_after-deskew.pnm", &sheet);
@@ -5435,7 +5350,7 @@ int main(int argc, char* argv[]) {
                         resize(w, h, &sheet);
                     } 
                     
-                    if (showtime) {
+                    if (showTime) {
                         endTime = clock();
                     }
 
@@ -5458,15 +5373,28 @@ int main(int argc, char* argv[]) {
                             // get pagebuffer
                             if ( outputCount == 1 ) {
                                 page.buffer = sheet.buffer;
+                                page.bufferGrayscale = sheet.bufferGrayscale;
+                                page.bufferLightness = sheet.bufferLightness;
+                                page.bufferDarknessInverse = sheet.bufferDarknessInverse;
                             } else { // generic case: copy page-part of sheet into own buffer
-                                page.buffer = (unsigned char*)malloc( page.width * page.height );
+                                if (page.color) {
+                                    page.buffer = (unsigned char*)malloc( page.width * page.height * 3 );
+                                    page.bufferGrayscale = (unsigned char*)malloc( page.width * page.height );
+                                    page.bufferLightness = (unsigned char*)malloc( page.width * page.height );
+                                    page.bufferDarknessInverse = (unsigned char*)malloc( page.width * page.height );
+                                } else {
+                                    page.buffer = (unsigned char*)malloc( page.width * page.height );
+                                    page.bufferGrayscale = page.buffer;
+                                    page.bufferLightness = page.buffer;
+                                    page.bufferDarknessInverse = page.buffer;
+                                }
                                 copyImageArea(page.width * j, 0, page.width, page.height, &sheet, 0, 0, &page);
                             }
                             
                             success = saveImage(outputFilenamesResolved[j], &page, outputType, overwrite, blackThreshold);
                             
                             if ( outputCount > 1 ) {
-                                free(page.buffer);
+                                freeImage(&page);
                             }
                             if (success == FALSE) {
                                 printf("*** error: Could not save image data to file %s.\n", outputFilenamesResolved[j]);
@@ -5475,10 +5403,10 @@ int main(int argc, char* argv[]) {
                         }
                     }
 
-                    free(sheet.buffer);
+                    freeImage(&sheet);
                     sheet.buffer = NULL;
 
-                    if (showtime) {
+                    if (showTime) {
                         if (startTime > endTime) { // clock overflow
                             endTime -= startTime; // "re-underflow" value again
                             startTime = 0;
@@ -5492,14 +5420,8 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    if ( trigonometryCacheBaseSize != 0 ) {
-        free(trigonometryCache);
-        if (verbose >= VERBOSE_MORE) {
-            printf("deallocated buffer for caching trigonometric calculations.\n");
-        }
-    }
-    if (showtime && (totalCount > 1)) {
-       printf("- total processing time of all %i sheets:  %f s  (average:  %f s)\n", totalCount, (float)totalTime/CLOCKS_PER_SEC, (float)totalTime/totalCount/CLOCKS_PER_SEC);
+    if ( showTime && (totalCount > 1) ) {
+       printf("- total processing time of all %i sheets:  %f s  (average:  %f s)\n", totalCount, (double)totalTime/CLOCKS_PER_SEC, (double)totalTime/totalCount/CLOCKS_PER_SEC);
     }
     return exitCode;
 }

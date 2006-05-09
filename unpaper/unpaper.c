@@ -32,11 +32,6 @@ const char* README =
 const char* COMPILE = 
 "gcc -D TIMESTAMP=\"<yyyy-MM-dd HH:mm:ss>\" -lm -O3 -funroll-all-loops -fomit-frame-pointer -ftree-vectorize -o unpaper unpaper.c\n";
 
-// Note: The algorithms used by this software are ad-hoc approaches that
-// merely perform quantitative analyzes of pixel data without being based on
-// any sophisticated image processing theory. Parts of the code might
-// thus still be highly optimizable. Suggestions are welcome.
-
 /* ------------------------------------------------------------------------ */
 
 #include <stdlib.h>
@@ -74,9 +69,9 @@ const char* OPTIONS =
 "                                         rotated anti-clockwise (i.e. the\n"
 "                                         top-sides of the pages are heading\n"
 "                                         leftwards on the unrotated sheet).\n"
-"                                     Using this option automatically adjusts the\n"
+"                                     Using this option automatically sets the\n"
 "                                     --mask-scan-point and maybe --pre/post-\n"
-"                                     rotation options.\n\n"
+"                                     rotate options.\n\n"
 
 "-start --start-sheet <sheet>         Number of first sheet to process in multi-\n"
 "                                     sheet mode. (default: 1)\n\n"
@@ -113,25 +108,27 @@ const char* OPTIONS =
 "--pre-wipe                           Manually wipe out an area before further\n"
 "  <left>,<top>,<right>,<bottom>      processing. Any pixel in a wiped area\n"
 "                                     will be set to white. Multiple areas to\n"
-"                                     be wiped may be specified.\n\n"
+"                                     be wiped may be specified by multiple\n"
+"                                     occurrences of this options.\n\n"
 
 "--post-wipe                          Manually wipe out an area after\n"
 "  <left>,<top>,<right>,<bottom>      processing. Any pixel in a wiped area\n"
 "                                     will be set to white. Multiple areas to\n"
-"                                     be wiped may be specified.\n\n"
+"                                     be wiped may be specified by multiple\n"
+"                                     occurrences of this options.\n\n"
 
 "--pre-border                         Clear the border-area of the sheet before\n"
-"  <left>,<top>,<roght>,<bottom>      further processing. Any pixel inside the\n"
-"                                     border will be set to white.\n\n"
+"  <left>,<top>,<right>,<bottom>      further processing. Any pixel in the\n"
+"                                     border area will be set to white.\n\n"
 
 "--post-border                        Clear the border-area after processing.\n"
-"  <left>,<top>,<roght>,<bottom>      Any pixel inside the border will be set\n"
+"  <left>,<top>,<right>,<bottom>      Any pixel in the border area will be set\n"
 "                                     to white.\n\n"
 
 "--pre-mask <x1>,<y1>,<x2>,<y2>       Specify masks to apply before any other\n"
 "                                     processing. Any pixel outside a mask\n"
-"                                     will be considered blank (white) pixels,\n"
-"                                     unless another mask includes this pixel.\n"
+"                                     will be set to white, unless another mask\n"
+"                                     includes this pixel.\n"
 "                                     Only pixels inside a mask will remain.\n"
 "                                     Multiple masks may be specified. No\n"
 "                                     deskewing will be applied to the masks\n"
@@ -153,7 +150,7 @@ const char* OPTIONS =
 "                                     legal.\n"
 "                                     All size names can also be applied in\n"
 "                                     rotated landscape orientation, use\n"
-"                                     'a4-landscape', 'letter-lanscape' etc.\n\n"
+"                                     'a4-landscape', 'letter-landscape' etc.\n\n"
 
 "--post-size <width>,<height>|<name>  Change the sheet size preserving the\n"
 "                                     content's aspect ratio after other\n"
@@ -161,12 +158,13 @@ const char* OPTIONS =
 
 "--stretch <width>,<height>|<name>    Change the sheet size before other\n"
 "                                     processing is applied. Content on the\n"
-"                                     sheet gets stretched to achieve the\n"
-"                                     appropriate size, possibly changing the\n"
-"                                     aspect ratio.\n\n"
+"                                     sheet gets stretched to the specified\n"
+"                                     size, possibly changing the aspect ratio.\n\n"
 
 "--post-stretch <width>,<height>      Change the sheet size after other\n"
-"               |<name>               processing is applied.\n\n"
+"               |<name>               processing is applied. Content on the\n"
+"                                     sheet gets stretched to the specified\n"
+"                                     size, possibly changing the aspect ratio.\n\n"
 
 "-z --zoom <factor>                   Change the sheet size according to the\n"
 "                                     given factor before other processing is\n"
@@ -199,7 +197,7 @@ const char* OPTIONS =
 "      <left>,<top>,<right>,<bottom>  operate. This can be useful to prevent\n"
 "                                     the blackfilter from working on inner\n"
 "                                     page content. May be specified multiple\n"
-"                                     times to set more than one mask.\n\n"
+"                                     times to set more than one area.\n\n"
 
 "-bi --blackfilter-intensity <i>      Intensity with which to delete black\n"
 "                                     areas. Larger values will leave less\n"
@@ -236,36 +234,37 @@ const char* OPTIONS =
 "                                     mask in cases where no black pixel is\n"
 "                                     found in the mask. (default: 0.5)\n\n"
 
-"-p --mask-point <x>,<y>              Manually set starting point for masking.\n"
-"                                     Multiple --mask-point parameters may be\n"
-"                                     specified to process multiple pages on 1\n"
-"                                     sheet. (default: middle of image)\n\n"
+"-p --mask-scan-point <x>,<y>         Manually set starting point for mask-\n"
+"                                     detection. Multiple --mask-scan-point\n"
+"                                     options may be specified to detect\n"
+"                                     multiple masks.\n\n"
 
 "-m --mask <x1>,<y1>,<x2>,<y2>        Manually add a mask, in addition to masks\n"
-"                                     automatically searched around the --point\n"
-"                                     coordinates (unless --no-mask-scan is\n"
-"                                     specified).\n"
+"                                     automatically detected around the --mask-\n"
+"                                     scan-point coordinates (unless --no-mask-\n"
+"                                     scan is specified).\n"
 "                                     Any pixel outside a mask will be\n"
-"                                     considered a blank (white) pixel, unless\n"
-"                                     another mask covers this pixel.\n\n"
+"                                     set to white, unless another mask\n"
+"                                     covers this pixel.\n\n"
 
-"-mn --mask-scan-direction            Directions in which to search for inner\n"
-"     [v[ertical]][,][h[orizontal]]   mask border. Either 'v' (for vertical\n"
+"-mn --mask-scan-direction            Directions in which to search for mask\n"
+"     [v[ertical]][,][h[orizontal]]   borders, starting from --mask-scan-point\n"
+"                                     coordinates. Either 'v' (for vertical\n"
 "                                     scanning), 'h' (for horizontal scanning)\n"
 "                                     of 'v,h' (for both) can be specified.\n"
-"                                     (default: 'h' ('v' may cut paragraphs on\n"
-"                                     single-page sheets))\n\n"
+"                                     (default: 'h' ('v' may cut text-\n"
+"                                     paragraphs on single-page sheets))\n\n"
 
-"-ms --mask-scan-size <size>|<h,v>    Width of virtual bar used for mask\n"
+"-ms --mask-scan-size <size>|<h,v>    Width of the virtual bar used for mask\n"
 "                                     detection. Two values may be specified\n"
 "                                     to individually set horizontal and\n"
 "                                     vertical size. (default: 50,50)\n\n"
 
-"-md --mask-scan-depth <dep>|<h,v>    Height of virtual bar used for mask\n"
+"-md --mask-scan-depth <dep>|<h,v>    Height of the virtual bar used for mask\n"
 "                                     detection. (default: -1,-1, using the\n"
 "                                     total width or height of the sheet)\n\n"
 
-"-mp --mask-scan-step <step>|<h,v>    Steps to move virtual bar for mask\n"
+"-mp --mask-scan-step <step>|<h,v>    Steps to move the virtual bar for mask\n"
 "                                     detection. (default: 5,5)\n\n"
 
 "-mt --mask-scan-threshold <t>|<h,v>  Ratio of dark pixels below which an edge\n"
@@ -273,32 +272,30 @@ const char* OPTIONS =
 "                                     when counting from the start coordinate\n"
 "                                     heading towards one edge. (default: 0.1)\n\n"
 
-"-mm --mask-scan-minimum <w>,<h>      Set minimum allowed size of an auto-\n"
-"                                     detected mask. Masks detected below this\n"
-"                                     size will be ignored and set to the size\n"
-"                                     specified by mask-scan-maximum. (default:\n"
-"                                     100,100)\n\n"
+"-mm --mask-scan-minimum <w>,<h>       Minimum allowed size of an auto-detected\n"
+"                                     mask. Masks detected below this size will\n"
+"                                     be ignored and set to the size specified\n"
+"                                     by mask-scan-maximum. (default: 100,100)\n\n"
 
-"-mM --mask-scan-maximum <w>,<h>      Set maximum allowed size of an auto-\n"
-"                                     detected mask. Masks detected above this\n"
-"                                     size will be shrunk to the maximum value,\n"
-"                                     each direction individually. (default:\n"
+"-mM --mask-scan-maximum <w>,<h>       Maximum allowed size of an auto-detected\n"
+"                                     mask. Masks detected above this size will\n"
+"                                     be shrunk to the maximum value, each\n"
+"                                     direction individually. (default:\n"
 "                                     sheet size, or page size derived from\n"
 "                                     --layout option.\n\n"
 
-"-mc --mask-color <color>             Set color / gray-scale value to overwrite\n"
-"                                     pixels which are not covered by any\n"
-"                                     detected mask. This may be useful for\n"
+"-mc --mask-color <color>             Color value with which to wipe out pixels\n"
+"                                     not covered by any mask. Maybe useful for\n"
 "                                     testing in order to visualize the effect\n"
-"                                     of masking. (value: 0..255, default: 255)\n\n"
+"                                     of masking. (Note that an RGB-value is\n"
+"                                     expected: R*65536 + G*256 + B.)\n\n"
 
-"-dn --deskew-scan-direction          Directions in which to scan for rotation.\n"
+"-dn --deskew-scan-direction          Edges from which to scan for rotation.\n"
 "     [left],[top],[right],[bottom]   Each edge of a mask can be used to detect\n"
 "                                     the mask's rotation. If multiple edges\n"
-"                                     are specified, the average value of the\n"
-"                                     individually detected values at each edge\n"
-"                                     will be used, unless they do not exceed\n"
-"                                     the value of --deskew-scan-deviation. Use\n"
+"                                     are specified, the average value will be\n"
+"                                     used, unless the statistical deviation\n"
+"                                     exceeds --deskew-scan-deviation. Use\n"
 "                                     'left' for scanning from the left edge,\n"
 "                                     'top' for scanning from the top edge,\n"
 "                                     'right' for scanning from the right edge,\n"
@@ -310,21 +307,21 @@ const char* OPTIONS =
 "                                     detection. (default: 1500)\n\n"
 
 "-dd --deskew-scan-depth <ratio>      Amount of dark pixels to accumulate until\n"
-"                                     scan is finished, relative to scan-bar\n"
+"                                     scanning is stopped, relative to scan-bar\n"
 "                                     size. (default: 0.5)\n\n"
 
 "-dr --deskew-scan-range <degrees>    Range in which to search for rotation,\n"
 "                                     from -degrees to +degrees rotation.\n"
-"                                     (default: 2.0)\n\n"
+"                                     (default: 5.0)\n\n"
 
-"-dp --deskew-scan-step <degrees>     Steps between single rotation-range\n"
+"-dp --deskew-scan-step <degrees>     Steps between single rotation-angle\n"
 "                                     detections.\n"
 "                                     Lower numbers lead to better results but\n"
 "                                     slow down processing. (default: 0.1)\n\n"
 
-"-dv --deskew-scan-deviation <dev>    Maximum deviation allowed between results\n"
-"                                     from all detected edges to perform auto-\n"
-"                                     rotating, else ignore. (default: 1.0)\n\n"
+"-dv --deskew-scan-deviation <dev>    Maximum statistical deviation allowed\n"
+"                                     among the results from detected edges.\n"
+"                                     No rotation if exceeded. (default: 1.0)\n\n"
 
 "-W --wipe                            Manually wipe out an area. Any pixel in\n"
 "     <left>,<top>,<right>,<bottom>   a wiped area will be set to white.\n"
@@ -337,7 +334,7 @@ const char* OPTIONS =
 "                                     wipe out between the two pages on the\n"
 "                                     sheet. This may be useful if the\n"
 "                                     blackfilter fails to remove some black\n"
-"                                     areas (which e.g. occur by photo-copying\n"
+"                                     areas (e.g. resulting from photo-copying\n"
 "                                     in the middle between two pages).\n\n"
 
 "-B --border                          Manually add a border. Any pixel in the\n"
@@ -363,15 +360,15 @@ const char* OPTIONS =
 "                                     the border-scan mask above which a border\n"
 "                                     is detected. (default: 5)\n\n"
 
-"-Ba --border-align                   Direction where to shift detected border-\n"
-"      [left],[top],[right],[bottom]  area. Use --border-margin to specify\n"
-"                                     horizontal and vertical distances to keep\n"
-"                                     from sheet-edge. Disable with --no-\n"
-"                                     border-align. (default: none)\n\n"
+"-Ba --border-align                   Direction where to shift the detected\n"
+"      [left],[top],[right],[bottom]  border-area. Use --border-margin to\n"
+"                                     specify horizontal and vertical distances\n"
+"                                     to be kept from the sheet-edge.\n"
+"                                     (default: none)\n\n"
 
-"-Bm --border-margin                  Distances to keep from sheet edge when\n"
-"      <vertical>,<horizontal>        aligning border area. May use measurements\n"
-"                                     suffix such as cm, in.\n\n"
+"-Bm --border-margin                  Distance to keep from the sheet edge when\n"
+"      <vertical>,<horizontal>        aligning a border area. May use\n"
+"                                     measurement suffices such as cm, in.\n\n"
 
 "-w --white-threshold <threshold>     Brightness ratio above which a pixel is\n"
 "                                     considered white.\n"
@@ -390,9 +387,7 @@ const char* OPTIONS =
 "                                     Before internally combining, --pre-\n"
 "                                     rotation is optionally applied\n"
 "                                     individually to both input images as the\n"
-"                                     very first processing steps.\n"
-"                                     Note that 2 input filenames need to be\n"
-"                                     specified when using this option.\n\n"
+"                                     very first processing steps.\n\n"
 
 "-op --output-pages 1|2               If '2' is specified, write two output\n"
 "                                     images instead of one, as a result of\n"
@@ -400,9 +395,7 @@ const char* OPTIONS =
 "                                     processing. After splitting the sheet,\n"
 "                                     --post-rotation is optionally applied\n"
 "                                     individually to both output images as the\n"
-"                                     very last processing step.\n"
-"                                     Note that 2 output filenames need to be\n"
-"                                     specified when using this option.\n\n"
+"                                     very last processing step.\n\n"
 
 "-S --sheet-size <width>,<height>     Force a fix sheet size. Usually, the\n"
 "                | <size-name>        sheet size is determined by the input\n"
@@ -430,45 +423,46 @@ const char* OPTIONS =
 "--no-blurfilter                      Disables blurfilter. Individual sheet\n"
 "  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
-"--no-mask-scan                       Disables auto-masking around the areas\n"
-"  <sheet>{,<sheet>[-<sheet>]}        searched beginning from points specified\n"
-"                                     by --point or auto-specified by --layout.\n"
-"                                     Masks explicitly set by --mask will still\n"
-"                                     have effect.\n\n"
+"--no-mask-scan                       Disables mask-detection. Masks explicitly\n"
+"  <sheet>{,<sheet>[-<sheet>]}        set by --mask will still have effect. In-\n"
+"                                     dividual sheet indices can be specified.\n\n"
 
 "--no-mask-center                     Disables auto-centering of each mask.\n"
 "  <sheet>{,<sheet>[-<sheet>]}        Auto-centering is performed by default\n"
-"                                     if the --layout option has been set.\n\n"
+"                                     if the --layout option has been set. In-\n"
+"                                     dividual sheet indices can be specified.\n\n"
 
-"--no-deskew                          Disables auto-rotation to a straight\n"
-"  <sheet>{,<sheet>[-<sheet>]}        alignment for individual sheets.\n\n"
+"--no-deskew                          Disables deskewing. Individual sheet\n"
+"  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
-"--no-wipe                            Disables explicitly wipe-areas.\n"
+"--no-wipe                            Disables explicit wipe-areas.\n"
 "  <sheet>{,<sheet>[-<sheet>]}        This means the effect of parameter\n"
-"                                     --wipe is disabled individually per\n"
+"                                     --wipe can be disabled individually per\n"
 "                                     sheet.\n\n"
 
 "--no-border                          Disables explicitly set borders.\n"
 "  <sheet>{,<sheet>[-<sheet>]}        This means the effect of parameter\n"
-"                                     --border is disabled individually per\n"
+"                                     --border can be disabled individually per\n"
 "                                     sheet.\n\n"
 
-"--no-border-scan                     Disables automatic border-scanning at the\n"
-"  <sheet>{,<sheet>[-<sheet>]}        edges of the sheet after most other\n"
-"                                     processing has been done.\n\n"
+"--no-border-scan                     Disables border-scanning from the\n"
+"  <sheet>{,<sheet>[-<sheet>]}        edges of the sheet. Individual sheet\n"
+"                                     indices can be specified.\n\n"
 
 "--no-border-align                    Disables aligning of the area detected by\n"
-"  <sheet>{,<sheet>[-<sheet>]}        border-scan (see --border-align).\n\n"
+"  <sheet>{,<sheet>[-<sheet>]}        border-scanning (see --border-align). In-\n"
+"                                     dividual sheet indices can be specified.\n\n"
 
 "-n --no-processing                   Do not perform any processing on a sheet\n"
 "     <sheet>{,<sheet>[-<sheet>]}     except pre/post rotating and mirroring,\n"
 "                                     and file-depth conversions on saving.\n"
 "                                     This option has the same effect as setting\n"
-"                                     all --no-xxx options together.\n\n"
+"                                     all --no-xxx options together. Individual\n"
+"                                     sheet indices can be specified.\n\n"
 
-"--no-qpixels                         Disable qpixel-mode for deskewing\n"
-"                                     (internally rotate a 4x bigger image and\n"
-"                                     reshrink afterwards).\n\n"
+"--no-qpixels                         Disable qpixel-mode for deskewing (do not\n"
+"                                     internally use a 4x bigger image when\n"
+"                                     rotating).\n\n"
 
 "--no-multi-pages                     Disable multi-page processing even if the\n"
 "                                     input filename contains a '%%' (usually\n"
@@ -966,7 +960,6 @@ void printFloats(float f[2]) {
  */
 char* implode(char* buf, char* s[], int cnt) {
     int i;
-    
     if (cnt > 0) {
         if (s[0] != NULL) {
             strcpy(buf, s[0]);
@@ -3943,8 +3936,8 @@ int main(int argc, char* argv[]) {
                 sscanf(argv[++i],"%f", &postZoomFactor);
 
 
-            // --mask-point  -p
-            } else if ((strcmp(argv[i], "-p")==0 || strcmp(argv[i], "--mask-point")==0) && (pointCount < MAX_POINTS)) {
+            // --mask-scan-point  -p
+            } else if ((strcmp(argv[i], "-p")==0 || strcmp(argv[i], "--mask-scan-point")==0) && (pointCount < MAX_POINTS)) {
                 x = -1;
                 y = -1;
                 sscanf(argv[++i],"%i,%i", &x, &y);
@@ -4492,7 +4485,7 @@ int main(int argc, char* argv[]) {
                 for ( j = 0; (success) && (j < inputCount); j++) {
                 
                     if ( (inputFilenamesResolved[j] == NULL) || fileExists(inputFilenamesResolved[j]) ) {
-                
+
                         if (inputFilenamesResolved[j] != NULL) { // may be null if --insert-blank or --replace-blank
                         
                             success = loadImage(inputFilenamesResolved[j], &page, &inputType);
@@ -4533,8 +4526,9 @@ int main(int argc, char* argv[]) {
                                     }
                                 }
                             }
-                        } else {
+                        } else { // inputFilenamesResolved[j] == NULL
                             page.buffer = NULL;
+                            inputTypeNames[j] = "<none>";
                         }
                                                 
                         // place image into sheet buffer

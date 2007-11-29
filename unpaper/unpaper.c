@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
-unpaper - written by Jens Gulden 2005, 2006                                 */
+unpaper - written by Jens Gulden 2005-2007                                  */
 
-const char* VERSION = "0.2";
+const char* VERSION = "0.2-cvs";
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
@@ -47,7 +47,7 @@ const char* BUILD = NULL;
 #endif
 
 const char* WELCOME = 
-"unpaper %s - written by Jens Gulden 2005, 2006.\n"
+"unpaper %s - written by Jens Gulden 2005-2007.\n"
 "Licensed under the GNU General Public License, this comes with no warranty.\n";
               
 const char* USAGE = 
@@ -851,7 +851,7 @@ void printEdges(int d) {
 void parseInts(char* s, int i[2]) {
     i[0] = -1;
     i[1] = -1;
-    sscanf(s, "%i,%i", &i[0], &i[1]);
+    sscanf(s, "%d,%d", &i[0], &i[1]);
     if (i[1]==-1) {
         i[1] = i[0]; // if second value is unset, copy first one into
     }
@@ -929,7 +929,7 @@ void parseSize(char* s, int i[2], int dpi, int* exitCode) {
  * Outputs a pair of two integers seperated by a comma.
  */            
 void printInts(int i[2]) {
-    printf("[%i,%i]\n", i[0], i[1]);
+    printf("[%d,%d]\n", i[0], i[1]);
 }
 
 
@@ -1000,12 +1000,12 @@ void parseMultiIndex(int* i, char* argv[], int multiIndex[], int* multiIndexCoun
         do {
             index = -1;
             s2[0] = (char)0; // = ""
-            sscanf(s1, "%i%c%s", &index, &c, s2);
+            sscanf(s1, "%d%c%s", &index, &c, s2);
             if (index != -1) {
                 multiIndex[(*multiIndexCount)++] = index;
                 if (c=='-') { // range is specified: get range end
                     strcpy(s1, s2); // s2 -> s1
-                    sscanf(s1, "%i,%s", &index, s2);
+                    sscanf(s1, "%d,%s", &index, s2);
                     for (j = multiIndex[(*multiIndexCount)-1]+1; j <= index; j++) {
                         multiIndex[(*multiIndexCount)++] = j;
                     }
@@ -1072,7 +1072,7 @@ void printMultiIndex(int multiIndex[MAX_MULTI_INDEX], int multiIndexCount) {
         printf("none");
     } else {
         for (i = 0; i < multiIndexCount; i++) {
-            printf("%i", multiIndex[i]);
+            printf("%d", multiIndex[i]);
             if (i < multiIndexCount-1) {
                 printf(",");
             }
@@ -1273,6 +1273,7 @@ int getPixel(int x, int y, struct IMAGE* image) {
  * @param colorComponent either RED, GREEN or BLUE
  * @return color or grayscale-value of the requested pixel, or WHITE if the coordinates are outside the image
  */ 
+ /* (currently not used)
 int getPixelComponent(int x, int y, int colorComponent, struct IMAGE* image) {
     int w, h;
     int pos;
@@ -1286,11 +1287,11 @@ int getPixelComponent(int x, int y, int colorComponent, struct IMAGE* image) {
         if ( ! image->color ) {
             return (unsigned char)image->buffer[pos];
         } else { // color
-            return (unsigned char)image->buffer[pos + colorComponent];
+            return (unsigned char)image->buffer[(pos * 3) + colorComponent];
         }
     }
 }
-
+*/
 
 /**
  * Returns the grayscale (=brightness) value of a single pixel.
@@ -1902,8 +1903,8 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
         fscanf(f, "%s", word);
     }
     // now reached width/height pair as decimal ascii
-    sscanf(word, "%i", &image->width);
-    fscanf(f, "%i", &image->height);
+    sscanf(word, "%d", &image->width);
+    fscanf(f, "%d", &image->height);
     fgetc(f); // skip \n after width/height pair
     if (*type == PBM) {
         bytesPerLine = (image->width + 7) / 8;
@@ -1916,7 +1917,7 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
             fscanf(f, "%s", word);
         }
         // read max color value
-        sscanf(word, "%i", &maxColorIndex);
+        sscanf(word, "%d", &maxColorIndex);
         fgetc(f); // skip \n after max color index
         if (maxColorIndex > 255) {
             printf("*** error: grayscale / color-component bit depths above 8 are not supported.\n");
@@ -1935,7 +1936,7 @@ BOOLEAN loadImage(char* filename, struct IMAGE* image, int* type) {
     image->buffer = (unsigned char*)malloc(inputSize);
     read = fread(image->buffer, 1, inputSize, f);
     if (read != inputSize) {
-        printf("*** error: Only %i out of %i could be read.\n", read, inputSize);
+        printf("*** error: Only %d out of %d could be read.\n", read, inputSize);
         return FALSE;
     }
     
@@ -2301,7 +2302,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
         // left
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 1, 0, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
-            printf("detected rotation left: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
+            printf("detected rotation left: [%d,%d,%d,%d]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
     }
@@ -2309,7 +2310,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
         // top
         rotation[count] = - detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, 1, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
-            printf("detected rotation top: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
+            printf("detected rotation top: [%d,%d,%d,%d]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
     }
@@ -2317,7 +2318,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
         // right
         rotation[count] = detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, -1, 0, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
-            printf("detected rotation right: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
+            printf("detected rotation right: [%d,%d,%d,%d]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
     }
@@ -2325,7 +2326,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
         // bottom
         rotation[count] = - detectEdgeRotation(deskewScanRange, deskewScanStep, deskewScanSize, deskewScanDepth, 0, -1, left, top, right, bottom, image);
         if (verbose >= VERBOSE_NORMAL) {
-            printf("detected rotation bottom: [%i,%i,%i,%i]: %f\n", left,top,right,bottom, rotation[count]);
+            printf("detected rotation bottom: [%d,%d,%d,%d]: %f\n", left,top,right,bottom, rotation[count]);
         }
         count++;
     }
@@ -2341,7 +2342,7 @@ double detectRotation(int deskewScanEdges, int deskewScanRange, float deskewScan
     }
     deviation = sqrt(total);
     if (verbose >= VERBOSE_NORMAL) {
-        printf("rotation average: %f  deviation: %f  rotation-scan-deviation (maximum): %f  [%i,%i,%i,%i]\n", average, deviation, deskewScanDeviation, left,top,right,bottom);
+        printf("rotation average: %f  deviation: %f  rotation-scan-deviation (maximum): %f  [%d,%d,%d,%d]\n", average, deviation, deskewScanDeviation, left,top,right,bottom);
     }
     if (deviation <= deskewScanDeviation) {
         return average;
@@ -2553,7 +2554,7 @@ void stretch(int w, int h, struct IMAGE* image) {
     int pixel;
 
     if (verbose >= VERBOSE_MORE) {
-        printf("stretching %ix%i -> %ix%i\n", image->width, image->height, w, h);
+        printf("stretching %dx%d -> %dx%d\n", image->width, image->height, w, h);
     }
 
     // allocate new buffer's memory
@@ -2630,9 +2631,13 @@ void stretch(int w, int h, struct IMAGE* image) {
                     sumB = 0;
                     for (yy = 0; yy < matrixHeight; yy++) {
                         for (xx = 0; xx < matrixWidth; xx++) {
-                            sumR += getPixelComponent(matrixX + xx, matrixY + yy, RED, image);
-                            sumG += getPixelComponent(matrixX + xx, matrixY + yy, GREEN, image);
-                            sumB += getPixelComponent(matrixX + xx, matrixY + yy, BLUE, image);
+                            pixel = getPixel(matrixX + xx, matrixY + yy, image);
+                            sumR += (pixel >> 16) & 0xff;
+                            sumG += (pixel >> 8) & 0xff;
+                            sumB += pixel & 0xff;
+                            //sumR += getPixelComponent(matrixX + xx, matrixY + yy, RED, image);
+                            //sumG += getPixelComponent(matrixX + xx, matrixY + yy, GREEN, image);
+                            //sumB += getPixelComponent(matrixX + xx, matrixY + yy, BLUE, image);
                             sumCount++;
                         }
                     }
@@ -2670,7 +2675,7 @@ void resize(int w, int h, struct IMAGE* image) {
     float hRat;
     
     if (verbose >= VERBOSE_NORMAL) {
-        printf("resizing %ix%i -> %ix%i\n", image->width, image->height, w, h);
+        printf("resizing %dx%d -> %dx%d\n", image->width, image->height, w, h);
     }
 
     wRat = (float)w / image->width;
@@ -2824,7 +2829,7 @@ int detectMasks(int mask[MAX_MASKS][EDGES_COUNT], BOOLEAN maskValid[MAX_MASKS], 
                  mask[maskCount][BOTTOM] = bottom;
                  maskCount++;
                  if (verbose>=VERBOSE_NORMAL) {
-                     printf("auto-masking (%i,%i): %i,%i,%i,%i", point[i][X], point[i][Y], left, top, right, bottom);
+                     printf("auto-masking (%d,%d): %d,%d,%d,%d", point[i][X], point[i][Y], left, top, right, bottom);
                      if (maskValid[i] == FALSE) { // (mask had been auto-set to full page size)
                          printf(" (invalid detection, using full page size)");
                      }
@@ -2832,12 +2837,12 @@ int detectMasks(int mask[MAX_MASKS][EDGES_COUNT], BOOLEAN maskValid[MAX_MASKS], 
                  }
              } else {
                  if (verbose>=VERBOSE_NORMAL) {
-                     printf("auto-masking (%i,%i): NO MASK FOUND\n", point[i][X], point[i][Y]);
+                     printf("auto-masking (%d,%d): NO MASK FOUND\n", point[i][X], point[i][Y]);
                  }
              }
              //if (maskValid[i] == FALSE) { // (mask had been auto-set to full page size)
              //    if (verbose>=VERBOSE_NORMAL) {
-             //        printf("auto-masking (%i,%i): NO MASK DETECTED\n", point[i][X], point[i][Y]);
+             //        printf("auto-masking (%d,%d): NO MASK DETECTED\n", point[i][X], point[i][Y]);
              //    }
              //}
          }
@@ -2903,7 +2908,7 @@ void applyWipes(int area[MAX_MASKS][EDGES_COUNT], int areaCount, int wipeColor, 
             }
         }
         if (verbose >= VERBOSE_MORE) {
-            printf("wipe [%i,%i,%i,%i]: %i pixels\n", area[i][LEFT], area[i][TOP], area[i][RIGHT], area[i][BOTTOM], count);
+            printf("wipe [%d,%d,%d,%d]: %d pixels\n", area[i][LEFT], area[i][TOP], area[i][RIGHT], area[i][BOTTOM], count);
         }
     }
 }
@@ -2928,12 +2933,15 @@ void mirror(int directions, struct IMAGE* image) {
     
     horizontal = ((directions & 1<<HORIZONTAL) != 0) ? TRUE : FALSE;
     vertical = ((directions & 1<<VERTICAL) != 0) ? TRUE : FALSE;
-    untilX = ((horizontal==TRUE)&&(vertical==FALSE)) ? ((image->width - 1) >> 1) : image->width - 1; // w>>1 == (int)(w-0.5)/2
+    untilX = ((horizontal==TRUE)&&(vertical==FALSE)) ? ((image->width - 1) >> 1) : (image->width - 1);  // w>>1 == (int)(w-0.5)/2
     untilY = (vertical==TRUE) ? ((image->height - 1) >> 1) : image->height - 1;
     for (y = 0; y <= untilY; y++) {
+        yy = (vertical==TRUE) ? (image->height - y - 1) : y;
+        if ((vertical==TRUE) && (horizontal==TRUE) && (y == yy)) { // last middle line in odd-lined image mirrored both h and v
+            untilX = ((image->width - 1) >> 1);
+        }
         for (x = 0; x <= untilX; x++) {
-            xx = (horizontal==TRUE) ? image->width - x - 1 : x;
-            yy = (vertical==TRUE) ? image->height - y - 1 : y;
+            xx = (horizontal==TRUE) ? (image->width - x - 1) : x;
             pixel1 = getPixel(x, y, image);
             pixel2 = getPixel(xx, yy, image);
             setPixel(pixel2, x, y, image);
@@ -3039,7 +3047,7 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
                 mask[BOTTOM] = b;
                 if (! masksOverlapAny(mask, exclude, excludeCount) ) {
                     if (verbose >= VERBOSE_NORMAL) {
-                        printf("black-area flood-fill: [%i,%i,%i,%i]\n", l, t, r, b);
+                        printf("black-area flood-fill: [%d,%d,%d,%d]\n", l, t, r, b);
                         alreadyExcludedMessage = FALSE;
                     }
                     // start flood-fill in this area (on each pixel to make sure we get everything, in most cases first flood-fill from first pixel will delete all other black pixels in the area already)
@@ -3050,7 +3058,7 @@ void blackfilterScan(int stepX, int stepY, int size, int dep, float threshold, i
                     }
                 } else {
                     if ((verbose >= VERBOSE_NORMAL) && (!alreadyExcludedMessage)) {
-                        printf("black-area EXCLUDED: [%i,%i,%i,%i]\n", l, t, r, b);
+                        printf("black-area EXCLUDED: [%d,%d,%d,%d]\n", l, t, r, b);
                         alreadyExcludedMessage = TRUE; // do this only once per scan-stripe, otherwise too many mesages
                     }
                 }
@@ -3255,7 +3263,7 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
     targetY = centerY - height/2; 
     if ((targetX >= 0) && (targetY >= 0) && ((targetX+width) <= image->width) && ((targetY+height) <= image->height)) {
         if (verbose >= VERBOSE_NORMAL) {
-            printf("centering mask [%i,%i,%i,%i] (%i,%i): %i, %i\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
+            printf("centering mask [%d,%d,%d,%d] (%d,%d): %d, %d\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
         }
         initImage(&newimage, width, height, image->bitdepth, image->color);
         copyImageArea(left, top, width, height, image, 0, 0, &newimage);
@@ -3264,7 +3272,7 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
         freeImage(&newimage);
     } else {
         if (verbose >= VERBOSE_NORMAL) {
-            printf("centering mask [%i,%i,%i,%i] (%i,%i): %i, %i - NO CENTERING (would shift area outside visible image)\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
+            printf("centering mask [%d,%d,%d,%d] (%d,%d): %d, %d - NO CENTERING (would shift area outside visible image)\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
         }
     }
 }
@@ -3297,7 +3305,7 @@ void alignMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], int direction, i
         targetY = (outside[TOP] + outside[BOTTOM] - height) / 2;
     }
     if (verbose >= VERBOSE_NORMAL) {
-        printf("aligning mask [%i,%i,%i,%i] (%i,%i): %i, %i\n", mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], targetX, targetY, targetX - mask[LEFT], targetY - mask[TOP]);
+        printf("aligning mask [%d,%d,%d,%d] (%d,%d): %d, %d\n", mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], targetX, targetY, targetX - mask[LEFT], targetY - mask[TOP]);
     }
     initImage(&newimage, width, height, image->bitdepth, image->color);
     copyImageArea(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image, 0, 0, &newimage);
@@ -3393,7 +3401,7 @@ void detectBorder(int border[EDGES_COUNT], int borderScanDirections, int borderS
         border[BOTTOM] += detectBorderEdge(outsideMask, 0, -borderScanStep[VERTICAL], borderScanSize[VERTICAL], borderScanThreshold[VERTICAL], blackThresholdAbs, image);
     }
     if (verbose >= VERBOSE_NORMAL) {
-        printf("border detected: (%i,%i,%i,%i) in [%i,%i,%i,%i]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], outsideMask[LEFT], outsideMask[TOP], outsideMask[RIGHT], outsideMask[BOTTOM]);
+        printf("border detected: (%d,%d,%d,%d) in [%d,%d,%d,%d]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], outsideMask[LEFT], outsideMask[TOP], outsideMask[RIGHT], outsideMask[BOTTOM]);
     }
 }
 
@@ -3407,7 +3415,7 @@ void borderToMask(int border[EDGES_COUNT], int mask[EDGES_COUNT], struct IMAGE* 
     mask[RIGHT] = image->width - border[RIGHT] - 1;
     mask[BOTTOM] = image->height - border[BOTTOM] - 1;
     if (verbose >= VERBOSE_DEBUG) {
-        printf("border [%i,%i,%i,%i] -> mask [%i,%i,%i,%i]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM]);
+        printf("border [%d,%d,%d,%d] -> mask [%d,%d,%d,%d]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM]);
     }
 }
 
@@ -3422,7 +3430,7 @@ void applyBorder(int border[EDGES_COUNT], int borderColor, struct IMAGE* image) 
     if (border[LEFT]!=0 || border[TOP]!=0 || border[RIGHT]!=0 || border[BOTTOM]!=0) {
         borderToMask(border, mask, image);
         if (verbose >= VERBOSE_NORMAL) {
-            printf("applying border (%i,%i,%i,%i) [%i,%i,%i,%i]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM]);
+            printf("applying border (%d,%d,%d,%d) [%d,%d,%d,%d]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM], mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM]);
         }
         applyMasks(&mask, 1, borderColor, image);
     }
@@ -3838,22 +3846,22 @@ int main(int argc, char* argv[]) {
 
             // --start-sheet
             } else if ((strcmp(argv[i], "-start")==0)||(strcmp(argv[i], "--start-sheet")==0)) {
-                sscanf(argv[++i],"%i", &startSheet);
+                sscanf(argv[++i],"%d", &startSheet);
                 if (nr < startSheet) {
                     nr = startSheet;
                 }
 
             // --end-sheet
             } else if ((strcmp(argv[i], "-end")==0)||(strcmp(argv[i], "--end-sheet")==0)) {
-                sscanf(argv[++i],"%i", &endSheet);
+                sscanf(argv[++i],"%d", &endSheet);
 
             // --start-input
             } else if ((strcmp(argv[i], "-si")==0)||(strcmp(argv[i], "--start-input")==0)) {
-                sscanf(argv[++i],"%i", &startInput);
+                sscanf(argv[++i],"%d", &startInput);
 
             // --start-output
             } else if ((strcmp(argv[i], "-so")==0)||(strcmp(argv[i], "--start-output")==0)) {
-                sscanf(argv[++i],"%i", &startOutput);
+                sscanf(argv[++i],"%d", &startOutput);
 
             // --sheet-size
             } else if ((strcmp(argv[i], "-S")==0)||(strcmp(argv[i], "--sheet-size")==0)) {
@@ -3874,7 +3882,7 @@ int main(int argc, char* argv[]) {
 
             // --pre-rotate
             } else if (strcmp(argv[i], "--pre-rotate")==0) {
-                sscanf(argv[++i],"%i", &preRotate);
+                sscanf(argv[++i],"%d", &preRotate);
                 if ((preRotate != 0) && (abs(preRotate) != 90)) {
                     printf("Cannot set --pre-rotate value other than -90 or 90, ignoring.\n");
                     preRotate = 0;
@@ -3882,7 +3890,7 @@ int main(int argc, char* argv[]) {
 
             // --post-rotate
             } else if (strcmp(argv[i], "--post-rotate")==0) {
-                sscanf(argv[++i],"%i", &postRotate);
+                sscanf(argv[++i],"%d", &postRotate);
                 if ((postRotate != 0) && (abs(postRotate) != 90)) {
                     printf("Cannot set --post-rotate value other than -90 or 90, ignoring.\n");
                     postRotate = 0;
@@ -3903,7 +3911,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 preMask[preMaskCount][LEFT] = left;
                 preMask[preMaskCount][TOP] = top;
                 preMask[preMaskCount][RIGHT] = right;
@@ -3940,7 +3948,7 @@ int main(int argc, char* argv[]) {
             } else if ((strcmp(argv[i], "-p")==0 || strcmp(argv[i], "--mask-scan-point")==0) && (pointCount < MAX_POINTS)) {
                 x = -1;
                 y = -1;
-                sscanf(argv[++i],"%i,%i", &x, &y);
+                sscanf(argv[++i],"%d,%d", &x, &y);
                 point[pointCount][X] = x;
                 point[pointCount][Y] = y;
                 pointCount++;
@@ -3952,7 +3960,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 mask[maskCount][LEFT] = left;
                 mask[maskCount][TOP] = top;
                 mask[maskCount][RIGHT] = right;
@@ -3967,7 +3975,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 wipe[wipeCount][LEFT] = left;
                 wipe[wipeCount][TOP] = top;
                 wipe[wipeCount][RIGHT] = right;
@@ -3980,7 +3988,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 preWipe[preWipeCount][LEFT] = left;
                 preWipe[preWipeCount][TOP] = top;
                 preWipe[preWipeCount][RIGHT] = right;
@@ -3993,7 +4001,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 postWipe[postWipeCount][LEFT] = left;
                 postWipe[postWipeCount][TOP] = top;
                 postWipe[postWipeCount][RIGHT] = right;
@@ -4007,15 +4015,15 @@ int main(int argc, char* argv[]) {
 
             // --border  -B
             } else if ((strcmp(argv[i], "-B")==0 || strcmp(argv[i], "--border")==0)) {
-                sscanf(argv[++i],"%i,%i,%i,%i", &border[LEFT], &border[TOP], &border[RIGHT], &border[BOTTOM]);
+                sscanf(argv[++i],"%d,%d,%d,%d", &border[LEFT], &border[TOP], &border[RIGHT], &border[BOTTOM]);
 
             // --pre-border
             } else if (strcmp(argv[i], "--pre-border")==0) {
-                sscanf(argv[++i],"%i,%i,%i,%i", &preBorder[LEFT], &preBorder[TOP], &preBorder[RIGHT], &preBorder[BOTTOM]);
+                sscanf(argv[++i],"%d,%d,%d,%d", &preBorder[LEFT], &preBorder[TOP], &preBorder[RIGHT], &preBorder[BOTTOM]);
 
             // --post-border
             } else if (strcmp(argv[i], "--post-border")==0) {
-                sscanf(argv[++i],"%i,%i,%i,%i", &postBorder[LEFT], &postBorder[TOP], &postBorder[RIGHT], &postBorder[BOTTOM]);
+                sscanf(argv[++i],"%d,%d,%d,%d", &postBorder[LEFT], &postBorder[TOP], &postBorder[RIGHT], &postBorder[BOTTOM]);
 
 
             // --no-blackfilter
@@ -4048,7 +4056,7 @@ int main(int argc, char* argv[]) {
                 top = -1;
                 right = -1;
                 bottom = -1;
-                sscanf(argv[++i],"%i,%i,%i,%i", &left, &top, &right, &bottom); // x1, y1, x2, y2
+                sscanf(argv[++i],"%d,%d,%d,%d", &left, &top, &right, &bottom); // x1, y1, x2, y2
                 blackfilterExclude[blackfilterExcludeCount][LEFT] = left;
                 blackfilterExclude[blackfilterExcludeCount][TOP] = top;
                 blackfilterExclude[blackfilterExcludeCount][RIGHT] = right;
@@ -4057,7 +4065,7 @@ int main(int argc, char* argv[]) {
 
             // --blackfilter-intensity  -bi
             } else if (strcmp(argv[i], "-bi")==0 || strcmp(argv[i], "--blackfilter-intensity")==0) {
-                sscanf(argv[++i], "%i", &blackfilterIntensity);
+                sscanf(argv[++i], "%d", &blackfilterIntensity);
 
 
             // --no-noisefilter
@@ -4066,7 +4074,7 @@ int main(int argc, char* argv[]) {
 
             // --noisefilter-intensity  -ni 
             } else if (strcmp(argv[i], "-ni")==0 || strcmp(argv[i], "--noisefilter-intensity")==0) {
-                sscanf(argv[++i], "%i", &noisefilterIntensity);
+                sscanf(argv[++i], "%d", &noisefilterIntensity);
 
 
             // --no-blurfilter
@@ -4129,15 +4137,15 @@ int main(int argc, char* argv[]) {
 
             // --mask-scan-minimum  -mm
             } else if (strcmp(argv[i], "-mm")==0 || strcmp(argv[i], "--mask-scan-minimum")==0) {
-                sscanf(argv[++i],"%i,%i", &maskScanMinimum[WIDTH], &maskScanMinimum[HEIGHT]);
+                sscanf(argv[++i],"%d,%d", &maskScanMinimum[WIDTH], &maskScanMinimum[HEIGHT]);
 
             // --mask-scan-maximum  -mM
             } else if (strcmp(argv[i], "-mM")==0 || strcmp(argv[i], "--mask-scan-maximum")==0) {
-                sscanf(argv[++i],"%i,%i", &maskScanMaximum[WIDTH], &maskScanMaximum[HEIGHT]);
+                sscanf(argv[++i],"%d,%d", &maskScanMaximum[WIDTH], &maskScanMaximum[HEIGHT]);
 
             // --mask-color
             } else if (strcmp(argv[i], "-mc")==0 || strcmp(argv[i], "--mask-color")==0) {
-                sscanf(argv[++i],"%i", &maskColor);
+                sscanf(argv[++i],"%d", &maskColor);
 
 
             // --no-mask-center
@@ -4155,7 +4163,7 @@ int main(int argc, char* argv[]) {
 
             // --deskew-scan-size  -ds
             } else if (strcmp(argv[i], "-ds")==0 || strcmp(argv[i], "--deskew-scan-size")==0) {
-                sscanf(argv[++i],"%i", &deskewScanSize);
+                sscanf(argv[++i],"%d", &deskewScanSize);
 
             // --deskew-scan-depth  -dd
             } else if (strcmp(argv[i], "-dd")==0 || strcmp(argv[i], "--deskew-scan-depth")==0) {
@@ -4226,7 +4234,7 @@ int main(int argc, char* argv[]) {
 
             // --input-pages
             } else if (strcmp(argv[i], "-ip")==0 || strcmp(argv[i], "--input-pages")==0) {
-                sscanf(argv[++i],"%i", &inputCount);
+                sscanf(argv[++i],"%d", &inputCount);
                 if ( ! (inputCount >= 1 && inputCount <= 2 ) ) {
                     printf("Cannot set --input-pages value other than 1 or 2, ignoring.\n");
                     inputCount = 1;
@@ -4234,7 +4242,7 @@ int main(int argc, char* argv[]) {
 
             // --output-pages
             } else if (strcmp(argv[i], "-op")==0 || strcmp(argv[i], "--output-pages")==0) {
-                sscanf(argv[++i],"%i", &outputCount);
+                sscanf(argv[++i],"%d", &outputCount);
                 if ( ! (outputCount >= 1 && outputCount <= 2 ) ) {
                     printf("Cannot set --output-pages value other than 1 or 2, ignoring.\n");
                     outputCount = 1;
@@ -4296,7 +4304,7 @@ int main(int argc, char* argv[]) {
 
             // --dpi
             } else if (strcmp(argv[i], "--dpi")==0) {
-                sscanf(argv[++i],"%i", &dpi);
+                sscanf(argv[++i],"%d", &dpi);
 
             // --type  -t
             } else if (strcmp(argv[i], "-t")==0 || strcmp(argv[i], "--type")==0) { 
@@ -4304,7 +4312,7 @@ int main(int argc, char* argv[]) {
 
             // --depth  -d
             } else if (strcmp(argv[i], "-d")==0 || strcmp(argv[i], "--depth")==0) { 
-                sscanf(argv[++i], "%i", &outputDepth);
+                sscanf(argv[++i], "%d", &outputDepth);
 
             // --quiet  -q
             } else if (strcmp(argv[i], "-q")==0  || strcmp(argv[i], "--quiet")==0) {
@@ -4474,7 +4482,7 @@ int main(int argc, char* argv[]) {
                 }
                 if (verbose > VERBOSE_QUIET) {
                     if (multisheets) {
-                        printf("Processing sheet #%i: %s -> %s\n", nr, implode(s1, inputFilenamesResolved, inputCount), implode(s2, outputFilenamesResolved, outputCount));
+                        printf("Processing sheet #%d: %s -> %s\n", nr, implode(s1, inputFilenamesResolved, inputCount), implode(s2, outputFilenamesResolved, outputCount));
                     } else {
                         printf("Processing sheet: %s -> %s\n", implode(s1, inputFilenamesResolved, inputCount), implode(s2, outputFilenamesResolved, outputCount));
                     }
@@ -4491,7 +4499,7 @@ int main(int argc, char* argv[]) {
                             success = loadImage(inputFilenamesResolved[j], &page, &inputType);
                             inputTypeName = (char*)FILETYPE_NAMES[inputType];
                             inputTypeNames[j] = inputTypeName;
-                            sprintf(debugFilename, "_loaded_%i.pnm", inputNr-inputCount+j);
+                            sprintf(debugFilename, "_loaded_%d.pnm", inputNr-inputCount+j);
                             saveDebug(debugFilename, &page);
 
                             if (!success) {
@@ -4501,7 +4509,7 @@ int main(int argc, char* argv[]) {
                                 // pre-rotate
                                 if (preRotate != 0) {
                                     if (verbose>=VERBOSE_NORMAL) {
-                                        printf("pre-rotating %i degrees.\n", preRotate);
+                                        printf("pre-rotating %d degrees.\n", preRotate);
                                     }
                                     if (preRotate == 90) {
                                         flipRotate(1, &page);
@@ -4568,16 +4576,16 @@ int main(int argc, char* argv[]) {
                             }
                             if (page.buffer != NULL) {
                                 if (verbose >= VERBOSE_DEBUG_SAVE) {
-                                    sprintf(debugFilename, "_page%i.pnm", inputNr-inputCount+j);
+                                    sprintf(debugFilename, "_page%d.pnm", inputNr-inputCount+j);
                                     saveDebug(debugFilename, &page);
-                                    sprintf(debugFilename, "_before_center_page%i.pnm", inputNr-inputCount+j);
+                                    sprintf(debugFilename, "_before_center_page%d.pnm", inputNr-inputCount+j);
                                     saveDebug(debugFilename, &sheet);
                                 }
                                 
                                 centerImage(&page, (w * j / inputCount), 0, (w / inputCount), h, &sheet);
                                 
                                 if (verbose >= VERBOSE_DEBUG_SAVE) {
-                                    sprintf(debugFilename, "_after_center_page%i.pnm", inputNr-inputCount+j);
+                                    sprintf(debugFilename, "_after_center_page%d.pnm", inputNr-inputCount+j);
                                     saveDebug(debugFilename, &sheet);
                                 }
                                 freeImage(&page);
@@ -4598,7 +4606,7 @@ int main(int argc, char* argv[]) {
                     bd = previousBitdepth;
                     col = previousColor;
                     if (verbose >= VERBOSE_NORMAL) {
-                        printf("need to guess sheet size from previous sheet: %ix%i\n", w, h);
+                        printf("need to guess sheet size from previous sheet: %dx%d\n", w, h);
                     }
                     if ((w == -1) || (h == -1)) {
                         printf("*** error: sheet size unknown, use at least one input file per sheet, or force using --sheet-size.\n");
@@ -4681,7 +4689,7 @@ int main(int argc, char* argv[]) {
                         }
 
                         if (preRotate != 0) {
-                            printf("pre-rotate: %i\n", preRotate);
+                            printf("pre-rotate: %d\n", preRotate);
                         }
                         if (preMirror != 0) {
                             printf("pre-mirror: ");
@@ -4690,25 +4698,25 @@ int main(int argc, char* argv[]) {
                         if (preWipeCount > 0) {
                             printf("pre-wipe: ");
                             for (i = 0; i < preWipeCount; i++) {
-                                printf("[%i,%i,%i,%i] ",preWipe[i][LEFT],preWipe[i][TOP],preWipe[i][RIGHT],preWipe[i][BOTTOM]);
+                                printf("[%d,%d,%d,%d] ",preWipe[i][LEFT],preWipe[i][TOP],preWipe[i][RIGHT],preWipe[i][BOTTOM]);
                             }
                             printf("\n");
                         }
                         if (preBorder[LEFT]!=0 || preBorder[TOP]!=0 || preBorder[RIGHT]!=0 || preBorder[BOTTOM]!=0) {
-                            printf("pre-border: [%i,%i,%i,%i]\n", preBorder[LEFT], preBorder[TOP], preBorder[RIGHT], preBorder[BOTTOM]);
+                            printf("pre-border: [%d,%d,%d,%d]\n", preBorder[LEFT], preBorder[TOP], preBorder[RIGHT], preBorder[BOTTOM]);
                         }
                         if (preMaskCount > 0) {
                             printf("pre-masking: ");
                             for (i = 0; i < preMaskCount; i++) {
-                                printf("[%i,%i,%i,%i] ",preMask[i][LEFT],preMask[i][TOP],preMask[i][RIGHT],preMask[i][BOTTOM]);
+                                printf("[%d,%d,%d,%d] ",preMask[i][LEFT],preMask[i][TOP],preMask[i][RIGHT],preMask[i][BOTTOM]);
                             }
                             printf("\n");
                         }
                         if ((stretchSize[WIDTH] != -1) || (stretchSize[HEIGHT] != -1)) {
-                            printf("stretch to: %ix%i\n", stretchSize[WIDTH], stretchSize[HEIGHT]);
+                            printf("stretch to: %dx%d\n", stretchSize[WIDTH], stretchSize[HEIGHT]);
                         }
                         if ((postStretchSize[WIDTH] != -1) || (postStretchSize[HEIGHT] != -1)) {
-                            printf("post-stretch to: %ix%i\n", postStretchSize[WIDTH], postStretchSize[HEIGHT]);
+                            printf("post-stretch to: %dx%d\n", postStretchSize[WIDTH], postStretchSize[HEIGHT]);
                         }
                         if (zoomFactor != 1.0) {
                             printf("zoom: %f\n", zoomFactor);
@@ -4729,11 +4737,11 @@ int main(int argc, char* argv[]) {
                             if (blackfilterExcludeCount > 0) {
                                 printf("blackfilter-scan-exclude: ");
                                 for (i = 0; i < blackfilterExcludeCount; i++) {
-                                    printf("[%i,%i,%i,%i] ",blackfilterExclude[i][LEFT],blackfilterExclude[i][TOP],blackfilterExclude[i][RIGHT],blackfilterExclude[i][BOTTOM]);
+                                    printf("[%d,%d,%d,%d] ",blackfilterExclude[i][LEFT],blackfilterExclude[i][TOP],blackfilterExclude[i][RIGHT],blackfilterExclude[i][BOTTOM]);
                                 }
                                 printf("\n");
                             }
-                            printf("blackfilter-intensity: %i\n", blackfilterIntensity);
+                            printf("blackfilter-intensity: %d\n", blackfilterIntensity);
                             if (noBlackfilterMultiIndexCount > 0) {
                                 printf("blackfilter DISABLED for sheets: ");
                                 printMultiIndex(noBlackfilterMultiIndex, noBlackfilterMultiIndexCount);
@@ -4742,7 +4750,7 @@ int main(int argc, char* argv[]) {
                             printf("blackfilter DISABLED for all sheets.\n");
                         }
                         if (noNoisefilterMultiIndexCount != -1) {
-                            printf("noisefilter-intensity: %i\n", noisefilterIntensity);
+                            printf("noisefilter-intensity: %d\n", noisefilterIntensity);
                             if (noNoisefilterMultiIndexCount > 0) {
                                 printf("noisefilter DISABLED for sheets: ");
                                 printMultiIndex(noNoisefilterMultiIndex, noNoisefilterMultiIndexCount);
@@ -4779,7 +4787,7 @@ int main(int argc, char* argv[]) {
                         if (noMaskScanMultiIndexCount != -1) {
                             printf("mask points: ");
                             for (i = 0; i < pointCount; i++) {
-                                printf("(%i,%i) ",point[i][X],point[i][Y]);
+                                printf("(%d,%d) ",point[i][X],point[i][Y]);
                             }
                             printf("\n");
                             printf("mask-scan-direction: ");
@@ -4792,9 +4800,9 @@ int main(int argc, char* argv[]) {
                             printInts(maskScanStep);
                             printf("mask-scan-threshold: ");//%f\n", maskScanThreshold);
                             printFloats(maskScanThreshold);
-                            printf("mask-scan-minimum: [%i,%i]\n", maskScanMinimum[WIDTH], maskScanMinimum[HEIGHT]);
-                            printf("mask-scan-maximum: [%i,%i]\n", maskScanMaximum[WIDTH], maskScanMaximum[HEIGHT]);
-                            printf("mask-color: %i\n", maskColor);
+                            printf("mask-scan-minimum: [%d,%d]\n", maskScanMinimum[WIDTH], maskScanMinimum[HEIGHT]);
+                            printf("mask-scan-maximum: [%d,%d]\n", maskScanMaximum[WIDTH], maskScanMaximum[HEIGHT]);
+                            printf("mask-color: %d\n", maskColor);
                             if (noMaskScanMultiIndexCount > 0) {
                                 printf("mask-scan DISABLED for sheets: ");
                                 printMultiIndex(noMaskScanMultiIndex, noMaskScanMultiIndexCount);
@@ -4805,7 +4813,7 @@ int main(int argc, char* argv[]) {
                         if (noDeskewMultiIndexCount != -1) {
                             printf("deskew-scan-direction: ");
                             printEdges(deskewScanEdges);
-                            printf("deskew-scan-size: %i\n", deskewScanSize);
+                            printf("deskew-scan-size: %d\n", deskewScanSize);
                             printf("deskew-scan-depth: %f\n", deskewScanDepth);
                             printf("deskew-scan-range: %f\n", deskewScanRange);
                             printf("deskew-scan-step: %f\n", deskewScanStep);
@@ -4824,7 +4832,7 @@ int main(int argc, char* argv[]) {
                             if (wipeCount > 0) {
                                 printf("wipe areas: ");
                                 for (i = 0; i < wipeCount; i++) {
-                                    printf("[%i,%i,%i,%i] ", wipe[i][LEFT], wipe[i][TOP], wipe[i][RIGHT], wipe[i][BOTTOM]);
+                                    printf("[%d,%d,%d,%d] ", wipe[i][LEFT], wipe[i][TOP], wipe[i][RIGHT], wipe[i][BOTTOM]);
                                 }
                                 printf("\n");
                             }
@@ -4832,11 +4840,11 @@ int main(int argc, char* argv[]) {
                             printf("wipe DISABLED for all sheets.\n");
                         }
                         if (middleWipe[0] > 0 || middleWipe[1] > 0) {
-                            printf("middle-wipe (l,r): %i,%i\n", middleWipe[0], middleWipe[1]);
+                            printf("middle-wipe (l,r): %d,%d\n", middleWipe[0], middleWipe[1]);
                         }
                         if (noBorderMultiIndexCount != -1) {
                             if (border[LEFT]!=0 || border[TOP]!=0 || border[RIGHT]!=0 || border[BOTTOM]!=0) {
-                                printf("explicit border: [%i,%i,%i,%i]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM]);
+                                printf("explicit border: [%d,%d,%d,%d]\n", border[LEFT], border[TOP], border[RIGHT], border[BOTTOM]);
                             }
                         } else {
                             printf("border DISABLED for all sheets.\n");
@@ -4864,19 +4872,19 @@ int main(int argc, char* argv[]) {
                         if (postWipeCount > 0) {
                             printf("post-wipe: ");
                             for (i = 0; i < postWipeCount; i++) {
-                                printf("[%i,%i,%i,%i] ",postWipe[i][LEFT],postWipe[i][TOP],postWipe[i][RIGHT],postWipe[i][BOTTOM]);
+                                printf("[%d,%d,%d,%d] ",postWipe[i][LEFT],postWipe[i][TOP],postWipe[i][RIGHT],postWipe[i][BOTTOM]);
                             }
                             printf("\n");
                         }
                         if (postBorder[LEFT]!=0 || postBorder[TOP]!=0 || postBorder[RIGHT]!=0 || postBorder[BOTTOM]!=0) {
-                            printf("post-border: [%i,%i,%i,%i]\n", postBorder[LEFT], postBorder[TOP], postBorder[RIGHT], postBorder[BOTTOM]);
+                            printf("post-border: [%d,%d,%d,%d]\n", postBorder[LEFT], postBorder[TOP], postBorder[RIGHT], postBorder[BOTTOM]);
                         }
                         if (postMirror != 0) {
                             printf("post-mirror: ");
                             printDirections(postMirror);
                         }
                         if (postRotate != 0) {
-                            printf("post-rotate: %i\n", postRotate);
+                            printf("post-rotate: %d\n", postRotate);
                         }
                         //if (ignoreMultiIndexCount > 0) {
                         //    printf("EXCLUDE sheets: ");
@@ -4884,11 +4892,11 @@ int main(int argc, char* argv[]) {
                         //}
                         printf("white-threshold: %f\n", whiteThreshold);
                         printf("black-threshold: %f\n", blackThreshold);
-                        printf("dpi: %i\n", dpi);
-                        printf("input-files per sheet: %i\n", inputCount);
-                        printf("output-files per sheet: %i\n", outputCount);
+                        printf("dpi: %d\n", dpi);
+                        printf("input-files per sheet: %d\n", inputCount);
+                        printf("output-files per sheet: %d\n", outputCount);
                         if ((sheetSize[WIDTH] != -1) || (sheetSize[HEIGHT] != -1)) {
-                            printf("sheet size forced to: %i x %i pixels\n", sheetSize[WIDTH], sheetSize[HEIGHT]);
+                            printf("sheet size forced to: %d x %d pixels\n", sheetSize[WIDTH], sheetSize[HEIGHT]);
                         }
                         printf("input-file-sequence:  %s\n", implode(s1, inputFileSequence, inputFileSequenceCount));
                         printf("output-file-sequence: %s\n", implode(s1, outputFileSequence, outputFileSequenceCount));
@@ -4898,9 +4906,9 @@ int main(int argc, char* argv[]) {
                         printf("\n");
                     }
                     if (verbose >= VERBOSE_NORMAL) {
-                        printf("input-file%s for sheet %i: %s (type%s %s)\n", pluralS(inputCount), nr, implode(s1, inputFilenamesResolved, inputCount), pluralS(inputCount), implode(s2, inputTypeNames, inputCount));
-                        printf("output-file%s for sheet %i: %s (type %s)\n", pluralS(outputCount), nr, implode(s1, outputFilenamesResolved, outputCount), outputTypeName);
-                        printf("sheet size: %ix%i\n", sheet.width, sheet.height);
+                        printf("input-file%s for sheet %d: %s (type%s %s)\n", pluralS(inputCount), nr, implode(s1, inputFilenamesResolved, inputCount), pluralS(inputCount), implode(s2, inputTypeNames, inputCount));
+                        printf("output-file%s for sheet %d: %s (type %s)\n", pluralS(outputCount), nr, implode(s1, outputFilenamesResolved, outputCount), outputTypeName);
+                        printf("sheet size: %dx%d\n", sheet.width, sheet.height);
                         printf("...\n");
                     }
 
@@ -5060,7 +5068,7 @@ int main(int argc, char* argv[]) {
                         saveDebug("./_after-blackfilter.pnm", &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ blackfilter DISABLED for sheet %i\n", nr);
+                            printf("+ blackfilter DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5073,11 +5081,11 @@ int main(int argc, char* argv[]) {
                         filterResult = noisefilter(noisefilterIntensity, whiteThreshold, &sheet);
                         saveDebug("./_after-noisefilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
-                            printf(" deleted %i clusters.\n", filterResult);
+                            printf(" deleted %d clusters.\n", filterResult);
                         }
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ noisefilter DISABLED for sheet %i\n", nr);
+                            printf("+ noisefilter DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5090,11 +5098,11 @@ int main(int argc, char* argv[]) {
                         filterResult = blurfilter(blurfilterScanSize, blurfilterScanStep, blurfilterIntensity, whiteThreshold, &sheet);
                         saveDebug("./_after-blurfilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
-                            printf(" deleted %i pixels.\n", filterResult);
+                            printf(" deleted %d pixels.\n", filterResult);
                         }
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ blurfilter DISABLED for sheet %i\n", nr);
+                            printf("+ blurfilter DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5103,7 +5111,7 @@ int main(int argc, char* argv[]) {
                         maskCount = detectMasks(mask, maskValid, point, pointCount, maskScanDirections, maskScanSize, maskScanDepth, maskScanStep, maskScanThreshold, maskScanMinimum, maskScanMaximum, &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ mask-scan DISABLED for sheet %i\n", nr);
+                            printf("+ mask-scan DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5123,11 +5131,11 @@ int main(int argc, char* argv[]) {
                         filterResult = grayfilter(grayfilterScanSize, grayfilterScanStep, grayfilterThreshold, blackThreshold, &sheet);
                         saveDebug("./_after-grayfilter.pnm", &sheet);
                         if (verbose >= VERBOSE_NORMAL) {
-                            printf(" deleted %i pixels.\n", filterResult);
+                            printf(" deleted %d pixels.\n", filterResult);
                         }
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ grayfilter DISABLED for sheet %i\n", nr);
+                            printf("+ grayfilter DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5169,7 +5177,7 @@ int main(int argc, char* argv[]) {
 
                                 if (rotation != 0.0) {
                                     if (verbose>=VERBOSE_NORMAL) {
-                                        printf("rotate (%i,%i): %f\n", point[i][X], point[i][Y], rotation);
+                                        printf("rotate (%d,%d): %f\n", point[i][X], point[i][Y], rotation);
                                     }
                                     initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT]+1)*q, (mask[i][BOTTOM]-mask[i][TOP]+1)*q, sheet.bitdepth, sheet.color);
                                     initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth, sheet.color);
@@ -5187,7 +5195,7 @@ int main(int argc, char* argv[]) {
                                     freeImage(&rectTarget);
                                 } else {
                                     if (verbose >= VERBOSE_NORMAL) {
-                                        printf("rotate (%i,%i): -\n", point[i][X], point[i][Y]);
+                                        printf("rotate (%d,%d): -\n", point[i][X], point[i][Y]);
                                     }
                                 }
 
@@ -5206,7 +5214,7 @@ int main(int argc, char* argv[]) {
                         saveDebug("./_after-deskew.pnm", &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ deskewing DISABLED for sheet %i\n", nr);
+                            printf("+ deskewing DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5229,7 +5237,7 @@ int main(int argc, char* argv[]) {
                         saveDebug("./_after-centering.pnm", &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ auto-centering DISABLED for sheet %i\n", nr);
+                            printf("+ auto-centering DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5238,7 +5246,7 @@ int main(int argc, char* argv[]) {
                         applyWipes(wipe, wipeCount, maskColor, &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ wipe DISABLED for sheet %i\n", nr);
+                            printf("+ wipe DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5247,7 +5255,7 @@ int main(int argc, char* argv[]) {
                         applyBorder(border, maskColor, &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ border DISABLED for sheet %i\n", nr);
+                            printf("+ border DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5265,14 +5273,14 @@ int main(int argc, char* argv[]) {
                                 alignMask(autoborderMask[i], outsideBorderscanMask[i], borderAlign, borderAlignMargin, &sheet);
                             } else {
                                 if (verbose >= VERBOSE_MORE) {
-                                    printf("+ border-centering DISABLED for sheet %i\n", nr);
+                                    printf("+ border-centering DISABLED for sheet %d\n", nr);
                                 }
                             }
                         }
                         saveDebug("./_after-border.pnm", &sheet);
                     } else {
                         if (verbose >= VERBOSE_MORE) {
-                            printf("+ border-scan DISABLED for sheet %i\n", nr);
+                            printf("+ border-scan DISABLED for sheet %d\n", nr);
                         }
                     }
 
@@ -5298,7 +5306,7 @@ int main(int argc, char* argv[]) {
                     // post-rotating
                     if (postRotate != 0) {
                         if (verbose >= VERBOSE_NORMAL) {
-                            printf("post-rotating %i degrees.\n", postRotate);
+                            printf("post-rotating %d degrees.\n", postRotate);
                         }
                         if (postRotate == 90) {
                             flipRotate(1, &sheet);
@@ -5415,7 +5423,7 @@ int main(int argc, char* argv[]) {
         }
     }
     if ( showTime && (totalCount > 1) ) {
-       printf("- total processing time of all %i sheets:  %f s  (average:  %f s)\n", totalCount, (double)totalTime/CLOCKS_PER_SEC, (double)totalTime/totalCount/CLOCKS_PER_SEC);
+       printf("- total processing time of all %d sheets:  %f s  (average:  %f s)\n", totalCount, (double)totalTime/CLOCKS_PER_SEC, (double)totalTime/totalCount/CLOCKS_PER_SEC);
     }
     return exitCode;
 }

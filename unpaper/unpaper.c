@@ -138,7 +138,7 @@ const char* OPTIONS =
 "          | <size-name>              cessing is applied. Content on the sheet\n"
 "                                     gets zoomed to fit to the appropriate\n"
 "                                     size, but the aspect ratio is preserved.\n"
-"                                     Instead, if the sheets\'s aspect ratio\n"
+"                                     Instead, if the sheet\'s aspect ratio\n"
 "                                     changes, the zoomed content gets centered\n"
 "                                     on the sheet. Size-name can also be a\n"
 "                                     standard name as 'a4', 'letter', etc.\n"
@@ -300,7 +300,7 @@ const char* OPTIONS =
 "                                     'top' for scanning from the top edge,\n"
 "                                     'right' for scanning from the right edge,\n"
 "                                     'bottom' for scanning from the bottom.\n"
-"                                     Multiple directions can be seperated by\n"
+"                                     Multiple directions can be separated by\n"
 "                                     commas. (default: 'left,right')\n\n"
 
 "-ds --deskew-scan-size <pixels>      Size of virtual line for rotation\n"
@@ -382,7 +382,7 @@ const char* OPTIONS =
 
 "-ip --input-pages 1|2                If '2' is specified, read two input\n"
 "                                     images instead of one and internally\n"
-"                                     combine them to a double-layouted sheet\n"
+"                                     combine them to a doubled-layout sheet\n"
 "                                     before further processing.\n"
 "                                     Before internally combining, --pre-\n"
 "                                     rotation is optionally applied\n"
@@ -391,7 +391,7 @@ const char* OPTIONS =
 
 "-op --output-pages 1|2               If '2' is specified, write two output\n"
 "                                     images instead of one, as a result of\n"
-"                                     splitting a double-layouted sheet after\n"
+"                                     splitting a doubled-layout sheet after\n"
 "                                     processing. After splitting the sheet,\n"
 "                                     --post-rotation is optionally applied\n"
 "                                     individually to both output images as the\n"

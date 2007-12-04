@@ -417,10 +417,13 @@ const char* OPTIONS =
 "--no-blackfilter                     Disables black area scan. Individual sheet\n"
 "  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
-"--no-noisefilter                     Disables noisefilter. Individual sheet\n"
+"--no-noisefilter                     Disables the noisefilter. Individual sheet\n"
 "  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
-"--no-blurfilter                      Disables blurfilter. Individual sheet\n"
+"--no-blurfilter                      Disables the blurfilter. Individual sheet\n"
+"  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
+
+"--no-grayfilter                      Disables the grayfilter. Individual sheet\n"
 "  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
 "--no-mask-scan                       Disables mask-detection. Masks explicitly\n"
@@ -471,7 +474,7 @@ const char* OPTIONS =
 
 "--dpi <dpi>                          Dots per inch used for conversion of\n"
 "                                     measured size values, like e.g.'21cm,\n"
-"                                     27.9cm'. Note that this parameter should\n"
+"                                     27.9cm'. Mind that this parameter should\n"
 "                                     occur before specifying any size value\n"
 "                                     with measurement suffix. (default: 300)\n\n"
 

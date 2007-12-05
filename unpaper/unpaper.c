@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
 unpaper - written by Jens Gulden 2005-2007                                  */
 
-const char* VERSION = "0.2-cvs";
+const char* VERSION = "0.3-beta1";
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
@@ -99,6 +99,16 @@ const char* OPTIONS =
 "--post-mirror                        Mirror the image, after any other\n"
 "  [v[ertical]][,][h[orizontal]]      processing except possible post-\n"
 "                                     rotation.\n\n"
+
+"--pre-shift <h>,<v>                  Shift the image before further processing.\n"
+"                                     Values for 'h' (horizontal shift) and 'v'\n"
+"                                     (vertical shift) can either be positive\n"
+"                                     or negative.\n\n"
+
+"--post-shift <h>,<v>                 Shift the image after other processing.\n"
+"                                     Values for 'h' (horizontal shift) and 'v'\n"
+"                                     (vertical shift) can either be positive\n"
+"                                     or negative.\n\n"
 
 "--pre-wipe                           Manually wipe out an area before further\n"
 "  <left>,<top>,<right>,<bottom>      processing. Any pixel in a wiped area\n"
@@ -409,6 +419,11 @@ const char* OPTIONS =
 "                                     'letter', etc. may be used (see --size).\n"
 "                                     (default: as in input file)\n\n"
 
+"--sheet-background black|white       Sets a color with which the sheet is\n"
+"                                     filled before any image is loaded and\n"
+"                                     placed onto it. This can be useful when\n"
+"                                     the sheet size and the image size differ.\n\n"
+
 "--no-blackfilter                     Disables black area scan. Individual sheet\n"
 "  <sheet>{,<sheet>[-<sheet>]}        indices can be specified.\n\n"
 
@@ -657,6 +672,7 @@ struct IMAGE {
     int height;
     int bitdepth;
     BOOLEAN color;
+    int background;
 };
 
 
@@ -690,6 +706,14 @@ const char PAPERSIZES[PAPERSIZES_COUNT][2][50] = {
     { "letter-landscape", "11in,8.5in" },
     { "legal", "8.5in,14in" },
     { "legal-landscape", "14in,8.5in" }
+};
+
+
+// color alias names
+#define COLORS_COUNT 2
+const char COLORS[COLORS_COUNT][2][50] = {
+    { "black", "#000000" },
+    { "white", "#ffffff" }
 };
 
 
@@ -924,6 +948,28 @@ void parseSize(char* s, int i[2], int dpi, int* exitCode) {
 
 
 /**
+ * Parses a color. Currently only "black" and "white".
+ */            
+int parseColor(char* s, int* exitCode) {
+    int j;
+
+    // is s a color name?
+    for (j = 0; j < COLORS_COUNT; j++) {
+        if (strcmp(s, COLORS[j][0])==0) {
+            if (j == 0) { // simple
+                return BLACK;
+            } else {
+                return WHITE;
+            }
+        }
+    }
+    printf("*** error: cannot parse color '%s'.\n", s);
+    *exitCode = 1;
+    return WHITE;
+}
+
+
+/**
  * Outputs a pair of two integers seperated by a comma.
  */            
 void printInts(int i[2]) {
@@ -1121,7 +1167,7 @@ BOOLEAN masksOverlapAny(int m[EDGES_COUNT], int masks[MAX_MASKS][EDGES_COUNT], i
  * Allocates a memory block for storing image data and fills the IMAGE-struct
  * with the specified values.
  */
-void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN color) {
+void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN color, int background) {
     int size;
     
     size = width * height;
@@ -1129,13 +1175,13 @@ void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN
         image->bufferGrayscale = (unsigned char*)malloc(size);
         image->bufferLightness = (unsigned char*)malloc(size);
         image->bufferDarknessInverse = (unsigned char*)malloc(size);
-        memset(image->bufferGrayscale, WHITE, size);
-        memset(image->bufferLightness, WHITE, size);
-        memset(image->bufferDarknessInverse, WHITE, size);
+        memset(image->bufferGrayscale, background, size);
+        memset(image->bufferLightness, background, size);
+        memset(image->bufferDarknessInverse, background, size);
         size *= 3;
     }
     image->buffer = (unsigned char*)malloc(size);
-    memset(image->buffer, WHITE, size);
+    memset(image->buffer, background, size);
     if ( ! color ) {
         image->bufferGrayscale = image->buffer;
         image->bufferLightness = image->buffer;
@@ -1145,6 +1191,7 @@ void initImage(struct IMAGE* image, int width, int height, int bitdepth, BOOLEAN
     image->height = height;
     image->bitdepth = bitdepth;
     image->color = color;
+    image->background = background;
 }
 
 
@@ -1364,11 +1411,11 @@ int getPixelDarknessInverse(int x, int y, struct IMAGE* image) {
 
 
 /**
- * Sets the color/grayscale value of a single pixel.
+ * Sets the color/grayscale value of a single pixel to either black or white.
  *
  * @return TRUE if the pixel has been changed, FALSE if the original color was the one to set
  */ 
-BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
+BOOLEAN setPixelBW(int x, int y, struct IMAGE* image, int blackwhite) {
     unsigned char* p;
     int w, h;
     int pos;
@@ -1382,8 +1429,8 @@ BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
         pos = (y * w) + x;
         if ( ! image->color ) {
             p = &image->buffer[pos];
-            if (*p != WHITE) {
-                *p = WHITE;
+            if (*p != blackwhite) {
+                *p = blackwhite;
                 return TRUE;
             } else {
                 return FALSE;
@@ -1391,18 +1438,18 @@ BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
         } else { // color
             p = &image->buffer[pos * 3];
             result = FALSE;
-            if (*p != WHITE) {
-                *p = WHITE;
+            if (*p != blackwhite) {
+                *p = blackwhite;
                 result = TRUE;
             }
             p++;
-            if (*p != WHITE) {
-                *p = WHITE;
+            if (*p != blackwhite) {
+                *p = blackwhite;
                 result = TRUE;
             }
             p++;
-            if (*p != WHITE) {
-                *p = WHITE;
+            if (*p != blackwhite) {
+                *p = blackwhite;
                 result = TRUE;
             }
             return result;
@@ -1412,17 +1459,33 @@ BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
 
 
 /**
- * Clears an area of an image.
+ * Sets the color/grayscale value of a single pixel to white.
+ *
+ * @return TRUE if the pixel has been changed, FALSE if the original color was the one to set
+ */ 
+BOOLEAN clearPixel(int x, int y, struct IMAGE* image) {
+    return setPixelBW(x, y, image, WHITE);
+}
+
+
+/**
+ * Clears a rectangular area of pixels with either black or white.
+ * @return The number of pixels actually changed from black (dark) to white.
  */
-void clearImageArea(int x, int y, int width, int height, struct IMAGE* image) {
-    int row;
-    int col;
-    // naive but generic implementation
-    for (row = 0; row < height; row++) {
-        for (col = 0; col < width; col++) {
-            clearPixel(x+col, y+row, image);
+int clearRect(int left, int top, int right, int bottom, struct IMAGE* image, int blackwhite) {
+    int x;
+    int y;
+    int count;
+
+    count = 0;
+    for (y = top; y <= bottom; y++) {
+        for (x = left; x <= right; x++) {
+            if (setPixelBW(x, y, image, blackwhite)) {
+                count++;
+            }
         }
     }
+    return count;
 }
 
 
@@ -1459,7 +1522,7 @@ void copyImage(struct IMAGE* source, int toX, int toY, struct IMAGE* target) {
  */
 void centerImageArea(int x, int y, int w, int h, struct IMAGE* source, int toX, int toY, int ww, int hh, struct IMAGE* target) {
     if ((w < ww) || (h < hh)) { // white rest-border will remain, so clear first
-        clearImageArea(toX, toY, ww, hh, target);
+        clearRect(toX, toY, toX + ww - 1, toY + hh - 1, target, target->background);
     }
     if (w < ww) {
         toX += (ww - w) / 2;
@@ -1569,26 +1632,6 @@ int countPixelsRect(int left, int top, int right, int bottom, int minColor, int 
                 if (clear==TRUE) {
                     clearPixel(x, y, image);
                 }
-                count++;
-            }
-        }
-    }
-    return count;
-}
-
-
-/**
- * Clears a rectangular area of pixels with white.
- */
-int clearRect(int left, int top, int right, int bottom, struct IMAGE* image) {
-    int x;
-    int y;
-    int count;
-    
-    count = 0;
-    for (y = top; y <= bottom; y++) {
-        for (x = left; x <= right; x++) {
-            if (clearPixel(x, y, image)) {
                 count++;
             }
         }
@@ -2519,7 +2562,7 @@ void convertFromQPixels(struct IMAGE* qpixelImage, struct IMAGE* image) {
 }
 
 
-/* --- stretching / resizing ---------------------------------------------- */
+/* --- stretching / resizing / shifting ------------------------------------ */
 
 /**
  * Stretches the image so that the resulting image has a new size.
@@ -2556,7 +2599,7 @@ void stretch(int w, int h, struct IMAGE* image) {
     }
 
     // allocate new buffer's memory
-    initImage(&newimage, w, h, image->bitdepth, image->color);
+    initImage(&newimage, w, h, image->bitdepth, image->color, WHITE);
     
     blockWidth = image->width / w; // (0 if enlarging, i.e. w > image->width)
     blockHeight = image->height / h;
@@ -2689,8 +2732,33 @@ void resize(int w, int h, struct IMAGE* image) {
         hh = h;
     }
     stretch(ww, hh, image);
-    initImage(&newimage, w, h, image->bitdepth, image->color);
+    initImage(&newimage, w, h, image->bitdepth, image->color, image->background);
     centerImage(image, 0, 0, w, h, &newimage);
+    replaceImage(image, &newimage);
+}
+
+
+/**
+ * Shifts the image.
+ *
+ * @param shiftX horizontal shifting
+ * @param shiftY vertical shifting
+ */
+void shift(int shiftX, int shiftY, struct IMAGE* image) {
+    struct IMAGE newimage;
+    int x;
+    int y;
+    int pixel;
+
+    // allocate new buffer's memory
+    initImage(&newimage, image->width, image->height, image->bitdepth, image->color, image->background);
+    
+    for (y = 0; y < image->height; y++) {
+        for (x = 0; x < image->width; x++) {
+            pixel = getPixel(x, y, image);
+            setPixel(pixel, x + shiftX, y + shiftY, &newimage);
+        }
+    }
     replaceImage(image, &newimage);
 }
 
@@ -2964,7 +3032,7 @@ void flipRotate(int direction, struct IMAGE* image) {
     int yy;
     int pixel;
     
-    initImage(&newimage, image->height, image->width, image->bitdepth, image->color); // exchanged width and height
+    initImage(&newimage, image->height, image->width, image->bitdepth, image->color, WHITE); // exchanged width and height
     for (y = 0; y < image->height; y++) {
         xx = ((direction > 0) ? image->height - 1 : 0) - y * direction;
         for (x = 0; x < image->width; x++) {
@@ -3223,7 +3291,7 @@ int grayfilter(int grayfilterScanSize[DIRECTIONS_COUNT], int grayfilterScanStep[
         if (count == 0) {
             lightness = lightnessRect(left, top, right, bottom, image);
             if ((WHITE - lightness) < thresholdAbs) { // (lower threshold->more deletion)
-                result += clearRect(left, top, right, bottom, image);
+                result += clearRect(left, top, right, bottom, image, WHITE);
             }
         }
         if (left < image->width) { // not yet at end of row
@@ -3263,9 +3331,9 @@ void centerMask(int centerX, int centerY, int left, int top, int right, int bott
         if (verbose >= VERBOSE_NORMAL) {
             printf("centering mask [%d,%d,%d,%d] (%d,%d): %d, %d\n", left, top, right, bottom, centerX, centerY, targetX-left, targetY-top);
         }
-        initImage(&newimage, width, height, image->bitdepth, image->color);
+        initImage(&newimage, width, height, image->bitdepth, image->color, image->background);
         copyImageArea(left, top, width, height, image, 0, 0, &newimage);
-        clearRect(left, top, right, bottom, image);
+        clearRect(left, top, right, bottom, image, image->background);
         copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
         freeImage(&newimage);
     } else {
@@ -3305,9 +3373,9 @@ void alignMask(int mask[EDGES_COUNT], int outside[EDGES_COUNT], int direction, i
     if (verbose >= VERBOSE_NORMAL) {
         printf("aligning mask [%d,%d,%d,%d] (%d,%d): %d, %d\n", mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], targetX, targetY, targetX - mask[LEFT], targetY - mask[TOP]);
     }
-    initImage(&newimage, width, height, image->bitdepth, image->color);
+    initImage(&newimage, width, height, image->bitdepth, image->color, image->background);
     copyImageArea(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image, 0, 0, &newimage);
-    clearRect(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image);
+    clearRect(mask[LEFT], mask[TOP], mask[RIGHT], mask[BOTTOM], image, image->background);
     copyImageArea(0, 0, width, height, &newimage, targetX, targetY, image);
     freeImage(&newimage);
 }
@@ -3457,10 +3525,13 @@ int main(int argc, char* argv[]) {
     char* outputFileSequence[MAX_FILES];
     int outputFileSequenceCount;
     int sheetSize[DIMENSIONS_COUNT];
+    int sheetBackground;
     int preRotate;
     int postRotate;
     int preMirror;
     int postMirror;
+    int preShift[DIRECTIONS_COUNT];
+    int postShift[DIRECTIONS_COUNT];
     int size[DIRECTIONS_COUNT];
     int postSize[DIRECTIONS_COUNT];
     int stretchSize[DIRECTIONS_COUNT];
@@ -3662,12 +3733,14 @@ int main(int argc, char* argv[]) {
 
         // --- default values ---
         w = h = -1;
-        layout = -1;
+        layout = LAYOUT_SINGLE;
         layoutStr = "single";
         preRotate = 0;
         postRotate = 0;
         preMirror = 0;
         postMirror = 0;
+        preShift[WIDTH] = preShift[HEIGHT] = 0;
+        postShift[WIDTH] = postShift[HEIGHT] = 0;
         size[WIDTH] = size[HEIGHT] = -1;
         postSize[WIDTH] = postSize[HEIGHT] = -1;
         stretchSize[WIDTH] = stretchSize[HEIGHT] = -1;
@@ -3724,6 +3797,7 @@ int main(int argc, char* argv[]) {
         whiteThreshold = 0.9;
         blackThreshold = 0.33;
         sheetSize[WIDTH] = sheetSize[HEIGHT] = -1;
+        sheetBackground = WHITE;
         writeoutput = TRUE;
         qpixels = TRUE;
         multisheets = TRUE;
@@ -3813,21 +3887,11 @@ int main(int argc, char* argv[]) {
             // --layout  -l
             } else if (strcmp(argv[i], "-l")==0 || strcmp(argv[i], "--layout")==0) {
                 i++;
-                noMaskCenterMultiIndexCount = 0; // enable mask centering
+                //noMaskCenterMultiIndexCount = 0; // enable mask centering
                 if (strcmp(argv[i], "single")==0) {
                     layout = LAYOUT_SINGLE;
-                //} else if (strcmp(argv[i], "single-rotated")==0) {
-                //    layout = LAYOUT_SINGLE;
-                //    // assume two pages are placed left-above-right on the sheet, so pre-rotate
-                //    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
-                //    postRotate = 90;
                 } else if (strcmp(argv[i], "double")==0) {
                     layout = LAYOUT_DOUBLE;
-                //} else if (strcmp(argv[i], "double-rotated")==0) {
-                //    layout = LAYOUT_DOUBLE;
-                //    // assume two pages are placed left-above-right on the sheet, so pre-rotate
-                //    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
-                //    postRotate = 90;
                 } else if (strcmp(argv[i], "none")==0) {
                     layout = LAYOUT_NONE;
                 } else {
@@ -3867,6 +3931,10 @@ int main(int argc, char* argv[]) {
             } else if ((strcmp(argv[i], "-S")==0)||(strcmp(argv[i], "--sheet-size")==0)) {
                 parseSize(argv[++i], sheetSize, dpi, &exitCode);
 
+            // --sheet-background
+            } else if (strcmp(argv[i], "--sheet-background")==0) {
+                sheetBackground = parseColor(argv[++i], &exitCode);
+
             // --exclude  -x
             } else if (strcmp(argv[i], "-x")==0 || strcmp(argv[i], "--exclude")==0) {
                 parseMultiIndex(&i, argv, excludeMultiIndex, &excludeMultiIndexCount);
@@ -3903,6 +3971,15 @@ int main(int argc, char* argv[]) {
             // --post-mirror
             } else if (strcmp(argv[i], "--post-mirror")==0) {
                 postMirror = parseDirections(argv[++i], &exitCode);
+
+
+            // --pre-shift
+            } else if (strcmp(argv[i], "--pre-shift")==0) {
+                parseSize(argv[++i], preShift, dpi, &exitCode);
+
+            // --post-shift
+            } else if (strcmp(argv[i], "--post-shift")==0) {
+                parseSize(argv[++i], postShift, dpi, &exitCode);
 
 
             // --pre-mask
@@ -4549,6 +4626,7 @@ int main(int argc, char* argv[]) {
                             sheet.height = page.height;
                             sheet.bitdepth = page.bitdepth;
                             sheet.color = page.color;
+                            sheet.background = sheetBackground;
                         } else { // generic case: place image onto sheet by copying
                             // allocate sheet-buffer if not done yet
                             if ((sheet.buffer == NULL) && (w != -1) && (h != -1)) {
@@ -4562,14 +4640,14 @@ int main(int argc, char* argv[]) {
                                         // bd remains default
                                     }
                                 }
-                                initImage(&sheet, w, h, bd, col);
+                                initImage(&sheet, w, h, bd, col, sheetBackground);
                                 
                             } else if ((page.buffer != NULL) && ((page.bitdepth > sheet.bitdepth) || ( (!sheet.color) && page.color ))) { // make sure current sheet buffer has enough bitdepth and color-mode
                                 sheetBackup = sheet;
                                 // re-allocate sheet
                                 bd = page.bitdepth;
                                 col = page.color;
-                                initImage(&sheet, w, h, bd, col);
+                                initImage(&sheet, w, h, bd, col, sheetBackground);
                                 // copy old one
                                 copyImage(&sheetBackup, 0, 0, &sheet);
                                 freeImage(&sheetBackup);
@@ -4612,7 +4690,7 @@ int main(int argc, char* argv[]) {
                         printf("*** error: sheet size unknown, use at least one input file per sheet, or force using --sheet-size.\n");
                         return 2;
                     } else {
-                        initImage(&sheet, w, h, bd, col);
+                        initImage(&sheet, w, h, bd, col, sheetBackground);
                     }
                 }
 
@@ -4663,6 +4741,14 @@ int main(int argc, char* argv[]) {
                         mirror(preMirror, &sheet);
                     }
 
+                    // pre-shifting
+                    if ((preShift[WIDTH] != 0) || ((preShift[HEIGHT] != 0))) {
+                        if (verbose >= VERBOSE_NORMAL) {
+                            printf("pre-shifting [%d,%d]\n", preShift[WIDTH], preShift[HEIGHT]);
+                        }
+                        shift(preShift[WIDTH], preShift[HEIGHT], &sheet);
+                    }
+
                     // pre-masking
                     if (preMaskCount > 0) {
                         if (verbose >= VERBOSE_NORMAL) {
@@ -4694,6 +4780,10 @@ int main(int argc, char* argv[]) {
                         if (preMirror != 0) {
                             printf("pre-mirror: ");
                             printDirections(preMirror);
+                        }
+                        if ((preShift[WIDTH] != 0) || ((preShift[HEIGHT] != 0))) {
+                            printf("pre-shift: ");
+                            printInts(preShift);
                         }
                         if (preWipeCount > 0) {
                             printf("pre-wipe: ");
@@ -4883,6 +4973,10 @@ int main(int argc, char* argv[]) {
                             printf("post-mirror: ");
                             printDirections(postMirror);
                         }
+                        if ((postShift[WIDTH] != 0) || ((postShift[HEIGHT] != 0))) {
+                            printf("post-shift: ");
+                            printInts(postShift);
+                        }
                         if (postRotate != 0) {
                             printf("post-rotate: %d\n", postRotate);
                         }
@@ -4892,6 +4986,7 @@ int main(int argc, char* argv[]) {
                         //}
                         printf("white-threshold: %f\n", whiteThreshold);
                         printf("black-threshold: %f\n", blackThreshold);
+                        printf("sheet-background: %s\n", ((sheetBackground == BLACK) ? "black" : "white") );
                         printf("dpi: %d\n", dpi);
                         printf("input-files per sheet: %d\n", inputCount);
                         printf("output-files per sheet: %d\n", outputCount);
@@ -5148,7 +5243,7 @@ int main(int argc, char* argv[]) {
                             if (verbose>=VERBOSE_NORMAL) {
                                 printf("converting to qpixels.\n");
                             }
-                            initImage(&qpixelSheet, sheet.width * 2, sheet.height * 2, sheet.bitdepth, sheet.color);
+                            initImage(&qpixelSheet, sheet.width * 2, sheet.height * 2, sheet.bitdepth, sheet.color, sheetBackground);
                             convertToQPixels(&sheet, &qpixelSheet);
                             sheet = qpixelSheet;
                             q = 2; // qpixel-factor for coordinates in both directions
@@ -5179,8 +5274,8 @@ int main(int argc, char* argv[]) {
                                     if (verbose>=VERBOSE_NORMAL) {
                                         printf("rotate (%d,%d): %f\n", point[i][X], point[i][Y], rotation);
                                     }
-                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT]+1)*q, (mask[i][BOTTOM]-mask[i][TOP]+1)*q, sheet.bitdepth, sheet.color);
-                                    initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth, sheet.color);
+                                    initImage(&rect, (mask[i][RIGHT]-mask[i][LEFT]+1)*q, (mask[i][BOTTOM]-mask[i][TOP]+1)*q, sheet.bitdepth, sheet.color, sheetBackground);
+                                    initImage(&rectTarget, rect.width, rect.height, sheet.bitdepth, sheet.color, sheetBackground);
 
                                     // copy area to rotate into rSource
                                     copyImageArea(mask[i][LEFT]*q, mask[i][TOP]*q, rect.width, rect.height, &sheet, 0, 0, &rect);
@@ -5301,6 +5396,14 @@ int main(int argc, char* argv[]) {
                             printDirections(postMirror);
                         }
                         mirror(postMirror, &sheet);
+                    }
+
+                    // post-shifting
+                    if ((postShift[WIDTH] != 0) || ((postShift[HEIGHT] != 0))) {
+                        if (verbose >= VERBOSE_NORMAL) {
+                            printf("post-shifting [%d,%d]\n", postShift[WIDTH], postShift[HEIGHT]);
+                        }
+                        shift(postShift[WIDTH], postShift[HEIGHT], &sheet);
                     }
 
                     // post-rotating

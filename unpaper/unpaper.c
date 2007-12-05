@@ -58,20 +58,15 @@ const char* USAGE =
 
 const char* OPTIONS = 
 "-l --layout single                   Set default layout options for a sheet:\n"
-"            |single-rotated          'single': One page per sheet, oriented\n"
-"            |double                      upwards without rotation.\n"
-"            |double-rotated          'single-rotated': One page per sheet,\n"
-"                                         rotated anti-clockwise.\n"
-"                                     'double': Two pages per sheet, landscape\n"
+"           |double                   'single': One page per sheet.\n"
+"           |none                     'double': Two pages per sheet, landscape\n"
 "                                         orientation (one page on the left\n"
 "                                         half, one page on the right half).\n"
-"                                     'double-rotated': Two pages per sheet,\n"
-"                                         rotated anti-clockwise (i.e. the\n"
-"                                         top-sides of the pages are heading\n"
-"                                         leftwards on the unrotated sheet).\n"
-"                                     Using this option automatically sets the\n"
-"                                     --mask-scan-point and maybe --pre/post-\n"
-"                                     rotate options.\n\n"
+"                                     'none': No auto-layout, mask-scan-points\n"
+"                                         may individually be specified.\n"
+"                                     Using 'single' or 'double' automatically\n"
+"                                     sets corresponding --mask-scan-points.\n"
+"                                     The default is 'single'.\n\n"
 
 "-start --start-sheet <sheet>         Number of first sheet to process in multi-\n"
 "                                     sheet mode. (default: 1)\n\n"
@@ -3668,7 +3663,7 @@ int main(int argc, char* argv[]) {
         // --- default values ---
         w = h = -1;
         layout = -1;
-        layoutStr = "NONE";
+        layoutStr = "single";
         preRotate = 0;
         postRotate = 0;
         preMirror = 0;
@@ -3821,18 +3816,20 @@ int main(int argc, char* argv[]) {
                 noMaskCenterMultiIndexCount = 0; // enable mask centering
                 if (strcmp(argv[i], "single")==0) {
                     layout = LAYOUT_SINGLE;
-                } else if (strcmp(argv[i], "single-rotated")==0) {
-                    layout = LAYOUT_SINGLE;
-                    // assume two pages are placed left-above-right on the sheet, so pre-rotate
-                    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
-                    postRotate = 90;
+                //} else if (strcmp(argv[i], "single-rotated")==0) {
+                //    layout = LAYOUT_SINGLE;
+                //    // assume two pages are placed left-above-right on the sheet, so pre-rotate
+                //    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
+                //    postRotate = 90;
                 } else if (strcmp(argv[i], "double")==0) {
                     layout = LAYOUT_DOUBLE;
-                } else if (strcmp(argv[i], "double-rotated")==0) {
-                    layout = LAYOUT_DOUBLE;
-                    // assume two pages are placed left-above-right on the sheet, so pre-rotate
-                    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
-                    postRotate = 90;
+                //} else if (strcmp(argv[i], "double-rotated")==0) {
+                //    layout = LAYOUT_DOUBLE;
+                //    // assume two pages are placed left-above-right on the sheet, so pre-rotate
+                //    preRotate = -90; // default as set by layout-template here, may again be overwritten by specific option
+                //    postRotate = 90;
+                } else if (strcmp(argv[i], "none")==0) {
+                    layout = LAYOUT_NONE;
                 } else {
                     printf("*** error: Unknown layout mode '%s'.", argv[i]);
                     exitCode = 1;

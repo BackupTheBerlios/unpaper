@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------------
 unpaper - written by Jens Gulden 2005-2007                                  */
 
-const char* VERSION = "0.3-beta1";
+const char* VERSION = "0.3";
 
 const char* README = 
 "unpaper is a post-processing tool for scanned sheets of paper, especially for\n"
